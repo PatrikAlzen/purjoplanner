@@ -5,7 +5,7 @@ import { useDrag, type DragMode, type DragResult } from '../../composables/useDr
 import type { Task } from '#shared/types'
 
 const props = defineProps<{
-  year: number
+  anchorMonth: number
 }>()
 
 const emit = defineEmits<{
@@ -17,18 +17,19 @@ const { store, isOverlapping } = useBoard()
 const LANE_HEIGHT = 64
 
 const laneRows = computed(() => store.sortedLanes)
-const tasksForYear = computed(() => store.tasksForYear(props.year))
+const tasksForWindow = computed(() => store.tasksForWindow(props.anchorMonth))
 
 function rowIndexForLane(laneId: string): number {
   return laneRows.value.findIndex((l) => l.id === laneId)
 }
 
-// --- Cross-year task spans ---------------------------------------------
-// A task's `end` may spill past 11 into the following year (see shared/types.ts).
-// This computes how a task should be displayed within the currently viewed
-// `year`: its clipped [start, end] range (always within 0-11), and whether
-// each edge is the task's *true* edge or a clipped continuation of a span
-// that starts/ends outside this year.
+// --- Sliding window task spans ------------------------------------------
+// The board shows a rolling 12-month window starting at `anchorMonth` (an
+// absolute month index, i.e. `year * 12 + monthIndex`). This computes how a
+// task should be displayed within that window: its clipped [start, end]
+// range (always within 0-11, relative to `anchorMonth`), and whether each
+// edge is the task's *true* edge or a clipped continuation of a span that
+// starts/ends outside the window.
 interface TaskViewSpan {
   start: number
   end: number
@@ -36,14 +37,29 @@ interface TaskViewSpan {
   clippedRight: boolean
 }
 
-function taskViewSpan(task: Task, year: number): TaskViewSpan | null {
-  if (task.year === year) {
-    return { start: task.start, end: Math.min(task.end, 11), clippedLeft: false, clippedRight: task.end > 11 }
+function absoluteRange(task: Task): { absStart: number; absEnd: number } {
+  return { absStart: task.year * 12 + task.start, absEnd: task.year * 12 + task.end }
+}
+
+// Converts an absolute [start, end] month range back into the {year, start,
+// end} triple used for storage, choosing `year` so that `start` lands in 0-11.
+function toStorage(absStart: number, absEnd: number): { year: number; start: number; end: number } {
+  const year = Math.floor(absStart / 12)
+  return { year, start: absStart - year * 12, end: absEnd - year * 12 }
+}
+
+function taskViewSpan(task: Task, anchorMonth: number): TaskViewSpan | null {
+  const { absStart, absEnd } = absoluteRange(task)
+  const windowEnd = anchorMonth + 11
+  const clippedStart = Math.max(absStart, anchorMonth)
+  const clippedEnd = Math.min(absEnd, windowEnd)
+  if (clippedStart > clippedEnd) return null
+  return {
+    start: clippedStart - anchorMonth,
+    end: clippedEnd - anchorMonth,
+    clippedLeft: absStart < anchorMonth,
+    clippedRight: absEnd > windowEnd
   }
-  if (task.year === year - 1 && task.end > 11) {
-    return { start: 0, end: task.end - 12, clippedLeft: true, clippedRight: false }
-  }
-  return null
 }
 
 // --- Geometry --------------------------------------------------------
@@ -87,15 +103,17 @@ const controller = useDrag({
     const lane = laneRows.value[row]
     if (!lane) return true
     const task = store.tasks.find((t) => t.id === excludeId)
-    if (!task) return isOverlapping(lane.id, props.year, start, end, excludeId)
-    const span = taskViewSpan(task, props.year)
-    if (span?.clippedLeft) {
-      // Only the (true) end edge is being adjusted; start/year are unchanged.
-      return isOverlapping(lane.id, task.year, task.start, 12 + end, excludeId)
+    if (!task) {
+      const { year, start: s, end: e } = toStorage(props.anchorMonth + start, props.anchorMonth + end)
+      return isOverlapping(lane.id, year, s, e, excludeId)
     }
-    // Normal task, or clipped-right (only the true start edge is adjustable).
-    const trueEnd = span?.clippedRight ? task.end : end
-    return isOverlapping(lane.id, task.year, start, trueEnd, excludeId)
+    const span = taskViewSpan(task, props.anchorMonth)
+    // A clipped edge means the true edge lies outside the window and isn't
+    // being dragged (its resize handle is hidden); use the task's real value.
+    const absStart = span?.clippedLeft ? task.year * 12 + task.start : props.anchorMonth + start
+    const absEnd = span?.clippedRight ? task.year * 12 + task.end : props.anchorMonth + end
+    const { year, start: s, end: e } = toStorage(absStart, absEnd)
+    return isOverlapping(lane.id, year, s, e, excludeId)
   },
   onPreview: (taskId, result) => {
     dragOverrides.set(taskId, result)
@@ -109,18 +127,12 @@ const controller = useDrag({
     const lane = laneRows.value[result.row]
     const task = store.tasks.find((t) => t.id === taskId)
     if (!lane || !task) return
-    const span = taskViewSpan(task, props.year)
-    let newStart = result.start
-    let newEnd = result.end
-    if (span?.clippedLeft) {
-      newStart = task.start
-      newEnd = 12 + result.end
-    } else if (span?.clippedRight) {
-      newStart = result.start
-      newEnd = task.end
-    }
-    if (task.laneId === lane.id && task.start === newStart && task.end === newEnd) return
-    void store.updateTask(taskId, { laneId: lane.id, start: newStart, end: newEnd }).catch(() => {})
+    const span = taskViewSpan(task, props.anchorMonth)
+    const absStart = span?.clippedLeft ? task.year * 12 + task.start : props.anchorMonth + result.start
+    const absEnd = span?.clippedRight ? task.year * 12 + task.end : props.anchorMonth + result.end
+    const { year: newYear, start: newStart, end: newEnd } = toStorage(absStart, absEnd)
+    if (task.laneId === lane.id && task.year === newYear && task.start === newStart && task.end === newEnd) return
+    void store.updateTask(taskId, { laneId: lane.id, year: newYear, start: newStart, end: newEnd }).catch(() => {})
   },
   onClick: (taskId) => emit('open-task', taskId)
 })
@@ -135,7 +147,7 @@ function onWindowUp() {
 }
 
 function startDrag(e: PointerEvent, task: Task, mode: DragMode) {
-  const span = taskViewSpan(task, props.year)
+  const span = taskViewSpan(task, props.anchorMonth)
   if (!span) return
   if (mode === 'move' && (span.clippedLeft || span.clippedRight)) {
     // Tasks that are only partially visible in this year (spanning into the
@@ -152,13 +164,13 @@ function startDrag(e: PointerEvent, task: Task, mode: DragMode) {
 function displayTask(task: Task): Task {
   const override = dragOverrides.get(task.id)
   if (override) return { ...task, start: override.start, end: override.end }
-  const span = taskViewSpan(task, props.year)
+  const span = taskViewSpan(task, props.anchorMonth)
   if (!span) return task
   return { ...task, start: span.start, end: span.end }
 }
 
 function tasksForRow(rowIndex: number): Task[] {
-  return tasksForYear.value.filter((t) => {
+  return tasksForWindow.value.filter((t) => {
     const override = dragOverrides.get(t.id)
     const row = override ? override.row : rowIndexForLane(t.laneId)
     return row === rowIndex
@@ -180,7 +192,7 @@ async function addLane() {
 <template>
   <div ref="boardWrapEl" class="board-wrap">
     <div ref="boardEl" class="board">
-      <MonthHeader />
+      <MonthHeader :anchor-month="anchorMonth" />
 
     <div v-if="laneRows.length === 0" class="empty-state">
       <p>No lanes yet. Add your first lane to start planning tasks.</p>
@@ -197,7 +209,7 @@ async function addLane() {
         @rename="(name) => renameLane(lane.id, name)"
         @remove="() => removeLane(lane.id)"
       >
-        <TodayMarker v-if="rowIndex === 0" :year="year" :lane-count="laneRows.length" :month-width="monthWidth" />
+        <TodayMarker v-if="rowIndex === 0" :anchor-month="anchorMonth" :lane-count="laneRows.length" :month-width="monthWidth" />
         <TaskPill
           v-for="task in tasksForRow(rowIndex)"
           :key="task.id"
@@ -205,8 +217,8 @@ async function addLane() {
           :month-width="monthWidth"
           :invalid="invalidTaskId === task.id"
           :dragging="draggingTaskId === task.id"
-          :clipped-left="!!taskViewSpan(task, year)?.clippedLeft"
-          :clipped-right="!!taskViewSpan(task, year)?.clippedRight"
+          :clipped-left="!!taskViewSpan(task, anchorMonth)?.clippedLeft"
+          :clipped-right="!!taskViewSpan(task, anchorMonth)?.clippedRight"
           @pointerdown-move="(e) => startDrag(e, task, 'move')"
           @pointerdown-resize-left="(e) => startDrag(e, task, 'resize-left')"
           @pointerdown-resize-right="(e) => startDrag(e, task, 'resize-right')"

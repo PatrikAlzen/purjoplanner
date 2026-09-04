@@ -1,22 +1,34 @@
 <script setup lang="ts">
-defineProps<{
-  year: number
+import { computed } from 'vue'
+
+const props = defineProps<{
+  anchorMonth: number
 }>()
 
 const emit = defineEmits<{
-  (e: 'prev-year'): void
-  (e: 'next-year'): void
+  (e: 'prev-month'): void
+  (e: 'next-month'): void
   (e: 'new-task'): void
 }>()
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function label(abs: number): string {
+  const year = Math.floor(abs / 12)
+  const month = abs - year * 12
+  return `${MONTHS[month]} ${year}`
+}
+
+const rangeLabel = computed(() => `${label(props.anchorMonth)} – ${label(props.anchorMonth + 11)}`)
 </script>
 
 <template>
   <div class="topbar">
     <h1>PurjoPlanner</h1>
     <div class="year-nav">
-      <button aria-label="Previous year" @click="emit('prev-year')">‹</button>
-      <span class="mono">{{ year }}</span>
-      <button aria-label="Next year" @click="emit('next-year')">›</button>
+      <button aria-label="Previous month" @click="emit('prev-month')">‹</button>
+      <span class="mono">{{ rangeLabel }}</span>
+      <button aria-label="Next month" @click="emit('next-month')">›</button>
     </div>
     <div class="spacer" />
     <slot name="theme-picker" />

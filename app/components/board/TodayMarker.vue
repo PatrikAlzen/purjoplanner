@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 const props = defineProps<{
-  year: number
+  anchorMonth: number
   laneCount: number
   monthWidth: number
 }>()
@@ -11,10 +11,9 @@ const LANE_HEIGHT = 64
 
 const fraction = computed<number | null>(() => {
   const today = new Date()
-  if (props.year !== today.getFullYear()) return null
-  const m = today.getMonth()
+  const absToday = today.getFullYear() * 12 + today.getMonth()
   const d = today.getDate()
-  const f = m + (d - 1) / 30
+  const f = absToday - props.anchorMonth + (d - 1) / 30
   if (f < 0 || f > 12) return null
   return f
 })

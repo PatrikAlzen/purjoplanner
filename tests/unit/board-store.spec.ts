@@ -92,12 +92,12 @@ describe('board store', () => {
     expect(store.activeThemeId).toBe('slate-amber')
   })
 
-  it('tasksForYear filters by year', () => {
+  it('tasksForWindow filters by the visible 12-month window', () => {
     const store = useBoardStore()
     store.tasks = [
       { id: 't1', name: 'A', color: '#000', laneId: 'l1', start: 0, end: 1, year: 2026, description: '', link: '', createdAt: '', updatedAt: '' },
       { id: 't2', name: 'B', color: '#000', laneId: 'l1', start: 0, end: 1, year: 2027, description: '', link: '', createdAt: '', updatedAt: '' }
     ]
-    expect(store.tasksForYear(2026).map((t) => t.id)).toEqual(['t1'])
+    expect(store.tasksForWindow(2026 * 12).map((t) => t.id)).toEqual(['t1'])
   })
 })

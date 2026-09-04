@@ -3,7 +3,7 @@
   "lanes": [
     {
       "id": "1a6d9ad1-5e47-4ca6-91dc-5fa5f51cb318",
-      "name": "Röd",
+      "name": "asdasd",
       "order": 0
     },
     {
@@ -15,21 +15,6 @@
       "id": "93eceae7-3629-4705-9dea-8767077f9895",
       "name": "Lane 3",
       "order": 2
-    },
-    {
-      "id": "94599cad-2c2e-47ef-877e-af336a1eaa07",
-      "name": "Lane 4",
-      "order": 3
-    },
-    {
-      "id": "0d469417-2399-42d3-9fe4-4b401d84d6d3",
-      "name": "Lane 5",
-      "order": 4
-    },
-    {
-      "id": "1d25f45a-05ef-42b1-8d2e-72e5f310ba45",
-      "name": "Lane 6",
-      "order": 5
     }
   ],
   "tasks": [
@@ -38,14 +23,40 @@
       "name": "Ny bygg- och deployprocess",
       "color": "#C9584A",
       "laneId": "1a6d9ad1-5e47-4ca6-91dc-5fa5f51cb318",
-      "start": 10,
-      "end": 11,
+      "start": 11,
+      "end": 23,
+      "year": 2026,
+      "description": "",
+      "link": "https://google.com",
+      "createdAt": "2026-09-04T18:01:08.621Z",
+      "updatedAt": "2026-09-04T18:47:32.422Z"
+    },
+    {
+      "id": "179e9c71-38d7-49f3-a0af-0eefc74cb596",
+      "name": "New task",
+      "color": "#2F8F8B",
+      "laneId": "ee54c7d0-053c-49d2-be9c-771be5bf33d4",
+      "start": 0,
+      "end": 0,
       "year": 2026,
       "description": "",
       "link": "",
-      "createdAt": "2026-09-04T18:01:08.621Z",
-      "updatedAt": "2026-09-04T18:02:07.842Z"
+      "createdAt": "2026-09-04T18:28:42.530Z",
+      "updatedAt": "2026-09-04T18:41:20.602Z"
+    },
+    {
+      "id": "d80e1430-6650-4955-9d73-338e870b5d2b",
+      "name": "New task",
+      "color": "#4C7A3F",
+      "laneId": "ee54c7d0-053c-49d2-be9c-771be5bf33d4",
+      "start": 6,
+      "end": 19,
+      "year": 2026,
+      "description": "",
+      "link": "",
+      "createdAt": "2026-09-04T19:13:54.733Z",
+      "updatedAt": "2026-09-04T19:14:22.574Z"
     }
   ],
-  "activeThemeId": "slate-amber"
+  "activeThemeId": "4c8254d0-fbae-4a30-b4f1-d5fbfe3a96ee"
 }

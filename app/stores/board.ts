@@ -10,23 +10,37 @@ import type {
 } from '#shared/types'
 import { errorMessage, useToast } from '../composables/useToast'
 
+// Absolute month index (Jan 1970 = 0, matching `year * 12 + monthIndex` used
+// throughout the app and in shared/collision.ts).
+function currentAbsoluteMonth(): number {
+  const now = new Date()
+  return now.getFullYear() * 12 + now.getMonth()
+}
+
 export const useBoardStore = defineStore('board', {
   state: () => ({
     lanes: [] as Lane[],
     tasks: [] as Task[],
     activeThemeId: 'slate-amber',
-    selectedYear: new Date().getFullYear(),
+    // First month of the sliding 12-month view window, as an absolute month
+    // index. Defaults to (current month - 2), so "today" starts in the third
+    // visible column.
+    anchorMonth: currentAbsoluteMonth() - 2,
     loaded: false
   }),
 
   getters: {
     sortedLanes: (state): Lane[] => [...state.lanes].sort((a, b) => a.order - b.order),
-    tasksForYear:
+    tasksForWindow:
       (state) =>
-      (year: number): Task[] =>
-        // A task is visible in `year` if its (possibly cross-year-spilling)
-        // range overlaps that year's 12 months.
-        state.tasks.filter((t) => t.year === year || (t.year === year - 1 && t.end > 11)),
+      (anchorMonth: number): Task[] =>
+        // A task is visible in the 12-month window starting at `anchorMonth`
+        // if its absolute [start, end] range overlaps [anchorMonth, anchorMonth + 11].
+        state.tasks.filter((t) => {
+          const absStart = t.year * 12 + t.start
+          const absEnd = t.year * 12 + t.end
+          return absEnd >= anchorMonth && absStart <= anchorMonth + 11
+        }),
     laneById:
       (state) =>
       (id: string): Lane | undefined =>
@@ -46,8 +60,8 @@ export const useBoardStore = defineStore('board', {
       this.loaded = true
     },
 
-    setSelectedYear(year: number): void {
-      this.selectedYear = year
+    setAnchorMonth(anchorMonth: number): void {
+      this.anchorMonth = anchorMonth
     },
 
     // --- Lanes -------------------------------------------------------

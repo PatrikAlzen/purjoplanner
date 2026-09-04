@@ -6,16 +6,16 @@ import { hasOverlap } from '#shared/collision'
 const store = useBoardStore()
 const openTaskId = ref<string | null>(null)
 
-const year = computed({
-  get: () => store.selectedYear,
-  set: (v: number) => store.setSelectedYear(v)
+const anchorMonth = computed({
+  get: () => store.anchorMonth,
+  set: (v: number) => store.setAnchorMonth(v)
 })
 
-function prevYear() {
-  year.value -= 1
+function prevMonth() {
+  anchorMonth.value -= 1
 }
-function nextYear() {
-  year.value += 1
+function nextMonth() {
+  anchorMonth.value += 1
 }
 
 function openTask(taskId: string) {
@@ -29,10 +29,13 @@ const DEFAULT_PALETTE = ['#DF9438', '#2F8F8B', '#C9584A', '#5B6EE1', '#6B8F47', 
 
 async function addNewTask() {
   try {
+    const year = Math.floor(anchorMonth.value / 12)
+    const start = anchorMonth.value - year * 12
+    const end = start + 1
     const lanes = store.sortedLanes
     let laneId: string | undefined
     for (const lane of lanes) {
-      if (!hasOverlap(store.tasks, lane.id, year.value, 0, 1)) {
+      if (!hasOverlap(store.tasks, lane.id, year, start, end)) {
         laneId = lane.id
         break
       }
@@ -46,9 +49,9 @@ async function addNewTask() {
       name: 'New task',
       color,
       laneId,
-      start: 0,
-      end: 1,
-      year: year.value
+      start,
+      end,
+      year
     })
     openTaskId.value = task.id
   } catch {
@@ -59,13 +62,13 @@ async function addNewTask() {
 
 <template>
   <div>
-    <TopBar :year="year" @prev-year="prevYear" @next-year="nextYear" @new-task="addNewTask">
+    <TopBar :anchor-month="anchorMonth" @prev-month="prevMonth" @next-month="nextMonth" @new-task="addNewTask">
       <template #theme-picker>
         <ThemePicker />
       </template>
     </TopBar>
 
-    <RoadmapBoard :year="year" @open-task="openTask" />
+    <RoadmapBoard :anchor-month="anchorMonth" @open-task="openTask" />
 
     <TaskPanel :task-id="openTaskId" @close="closePanel" />
   </div>

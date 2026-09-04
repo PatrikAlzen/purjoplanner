@@ -10,6 +10,9 @@ import { useBoardStore } from '../../app/stores/board'
 
 const globalComponents = { MonthHeader, Lane, TaskPill, TodayMarker }
 
+// January 2026, expressed as an absolute month index (year * 12 + month).
+const ANCHOR_2026 = 2026 * 12
+
 function seedStore() {
   const store = useBoardStore()
   store.lanes = [
@@ -45,7 +48,7 @@ describe('RoadmapBoard', () => {
   it('renders one Lane per store lane and the task inside its lane', () => {
     vi.stubGlobal('$fetch', vi.fn())
     seedStore()
-    const wrapper = mount(RoadmapBoard, { props: { year: 2026 }, global: { components: globalComponents } })
+    const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
     const laneInputs = wrapper.findAll('.lane-label input')
     expect(laneInputs.map((i) => (i.element as HTMLInputElement).value)).toEqual(['Lane 1', 'Lane 2'])
     expect(wrapper.text()).toContain('Design system v2')
@@ -67,7 +70,7 @@ describe('RoadmapBoard', () => {
       createdAt: '',
       updatedAt: ''
     })
-    const wrapper = mount(RoadmapBoard, { props: { year: 2026 }, global: { components: globalComponents } })
+    const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
     expect(wrapper.text()).not.toContain('Next year task')
   })
 
@@ -77,7 +80,7 @@ describe('RoadmapBoard', () => {
       vi.fn().mockResolvedValue({ id: 'l3', name: 'Lane 3', order: 2 })
     )
     const store = seedStore()
-    const wrapper = mount(RoadmapBoard, { props: { year: 2026 }, global: { components: globalComponents } })
+    const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
     await wrapper.find('.add-lane-btn').trigger('click')
     await flushPromises()
     expect(store.lanes.length).toBe(3)
@@ -86,7 +89,7 @@ describe('RoadmapBoard', () => {
   it('emits open-task when a task pill is clicked without dragging', async () => {
     vi.stubGlobal('$fetch', vi.fn())
     seedStore()
-    const wrapper = mount(RoadmapBoard, { props: { year: 2026 }, global: { components: globalComponents } })
+    const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
     const pill = wrapper.find('[data-task-id="t1"]')
     await pill.trigger('pointerdown', { clientX: 0, clientY: 0 })
     window.dispatchEvent(new PointerEvent('pointerup', { clientX: 1, clientY: 0 }))
