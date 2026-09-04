@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Lane from '../../app/components/board/Lane.vue'
 
@@ -17,11 +17,33 @@ describe('Lane', () => {
     expect(notRemovable.find('.lane-remove').exists()).toBe(false)
   })
 
-  it('emits rename on input', async () => {
-    const wrapper = mount(Lane, { props: { name: 'Lane 1', canRemove: true, even: false } })
-    const input = wrapper.find('input')
-    await input.setValue('Renamed lane')
-    expect(wrapper.emitted('rename')?.[0]).toEqual(['Renamed lane'])
+  it('emits rename (debounced) on input', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(Lane, { props: { name: 'Lane 1', canRemove: true, even: false } })
+      const input = wrapper.find('input')
+      await input.setValue('Renamed lane')
+      expect(wrapper.emitted('rename')).toBeFalsy()
+      vi.advanceTimersByTime(300)
+      expect(wrapper.emitted('rename')?.[0]).toEqual(['Renamed lane'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not emit rename while the field is cleared, and reverts to the previous name on blur', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(Lane, { props: { name: 'Lane 1', canRemove: true, even: false } })
+      const input = wrapper.find('input')
+      await input.setValue('')
+      vi.advanceTimersByTime(300)
+      expect(wrapper.emitted('rename')).toBeFalsy()
+      await input.trigger('blur')
+      expect((input.element as HTMLInputElement).value).toBe('Lane 1')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('emits remove on button click', async () => {

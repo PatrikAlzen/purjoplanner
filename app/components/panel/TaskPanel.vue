@@ -20,12 +20,27 @@ const task = computed(() => (props.taskId ? store.tasks.find((t) => t.id === pro
 const lane = computed(() => (task.value ? store.laneById(task.value.laneId) : undefined))
 const isOpen = computed(() => !!task.value)
 
+const rangeLabel = computed(() => {
+  const t = task.value
+  if (!t) return ''
+  const endMonth = t.end > 11 ? t.end - 12 : t.end
+  const endYear = t.end > 11 ? t.year + 1 : t.year
+  const startLabel = `${MONTHS[t.start]} ${t.year}`
+  const endLabel = endYear === t.year ? MONTHS[endMonth] : `${MONTHS[endMonth]} ${endYear}`
+  return `${startLabel} – ${endLabel}`
+})
+
 const palette = computed(() => activeTheme.value?.palette ?? [])
 
 const nameDraft = ref('')
 const descDraft = ref('')
 const linkDraft = ref('')
 const linkError = ref('')
+const startMonthDraft = ref(0)
+const startYearDraft = ref(new Date().getFullYear())
+const endMonthDraft = ref(0)
+const endYearDraft = ref(new Date().getFullYear())
+const rangeError = ref('')
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 let pendingPatch: Record<string, unknown> = {}
@@ -39,6 +54,13 @@ watch(
     descDraft.value = t?.description ?? ''
     linkDraft.value = t?.link ?? ''
     linkError.value = ''
+    rangeError.value = ''
+    if (t) {
+      startMonthDraft.value = t.start
+      startYearDraft.value = t.year
+      endMonthDraft.value = t.end > 11 ? t.end - 12 : t.end
+      endYearDraft.value = t.end > 11 ? t.year + 1 : t.year
+    }
   },
   { immediate: true }
 )
@@ -74,6 +96,23 @@ function onColorSelect(color: string) {
   if (!props.taskId) return
   void store.updateTask(props.taskId, { color }).catch(() => {})
 }
+function onRangeChange() {
+  if (!props.taskId) return
+  const yearDiff = endYearDraft.value - startYearDraft.value
+  if (yearDiff !== 0 && yearDiff !== 1) {
+    rangeError.value = 'End must be in the same year or the year right after start'
+    return
+  }
+  const end = yearDiff === 1 ? 12 + endMonthDraft.value : endMonthDraft.value
+  if (end < startMonthDraft.value) {
+    rangeError.value = 'End must be on or after start'
+    return
+  }
+  rangeError.value = ''
+  void store
+    .updateTask(props.taskId, { year: startYearDraft.value, start: startMonthDraft.value, end })
+    .catch(() => {})
+}
 async function onDelete() {
   if (!props.taskId) return
   await store.removeTask(props.taskId)
@@ -96,9 +135,7 @@ function onKeydown(e: KeyboardEvent) {
         <div class="panel-top">
           <div>
             <input v-model="nameDraft" class="panel-name" placeholder="Task name" @input="onNameInput" />
-            <div class="panel-meta mono">
-              {{ MONTHS[task.start] }} – {{ MONTHS[task.end] }} · {{ lane?.name ?? 'Unknown lane' }}
-            </div>
+            <div class="panel-meta mono">{{ rangeLabel }} · {{ lane?.name ?? 'Unknown lane' }}</div>
           </div>
           <button class="panel-close" aria-label="Close panel" @click="onClose">×</button>
         </div>
@@ -106,6 +143,34 @@ function onKeydown(e: KeyboardEvent) {
         <div class="field">
           <label>Color</label>
           <ColorSwatches :palette="palette" :selected="task.color" @select="onColorSelect" />
+        </div>
+
+        <div class="field">
+          <label>Start &ndash; End</label>
+          <div class="range-row">
+            <select v-model.number="startMonthDraft" aria-label="Start month" @change="onRangeChange">
+              <option v-for="(m, i) in MONTHS" :key="m" :value="i">{{ m }}</option>
+            </select>
+            <input
+              v-model.number="startYearDraft"
+              type="number"
+              class="year-input"
+              aria-label="Start year"
+              @change="onRangeChange"
+            />
+            <span class="range-sep">&ndash;</span>
+            <select v-model.number="endMonthDraft" aria-label="End month" @change="onRangeChange">
+              <option v-for="(m, i) in MONTHS" :key="m" :value="i">{{ m }}</option>
+            </select>
+            <input
+              v-model.number="endYearDraft"
+              type="number"
+              class="year-input"
+              aria-label="End year"
+              @change="onRangeChange"
+            />
+          </div>
+          <p v-if="rangeError" class="field-error">{{ rangeError }}</p>
         </div>
 
         <div class="field">
@@ -241,6 +306,28 @@ function onKeydown(e: KeyboardEvent) {
   color: #b34a3c;
   font-size: 12px;
   margin: 6px 0 0;
+}
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.range-row select,
+.range-row .year-input {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--ink);
+}
+.range-row .year-input {
+  width: 72px;
+}
+.range-sep {
+  color: var(--ink-soft);
 }
 .panel-footer {
   margin-top: auto;

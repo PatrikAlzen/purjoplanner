@@ -25,8 +25,14 @@ describe('taskCreateSchema', () => {
   })
 
   it('rejects out-of-range months', () => {
-    expect(() => taskCreateSchema.parse({ ...valid, end: 12 })).toThrow()
+    expect(() => taskCreateSchema.parse({ ...valid, end: 24 })).toThrow()
     expect(() => taskCreateSchema.parse({ ...valid, start: -1 })).toThrow()
+    expect(() => taskCreateSchema.parse({ ...valid, start: 12 })).toThrow()
+  })
+
+  it('accepts an end month that spills into the following year (12-23)', () => {
+    expect(() => taskCreateSchema.parse({ ...valid, start: 11, end: 12 })).not.toThrow()
+    expect(() => taskCreateSchema.parse({ ...valid, start: 0, end: 23 })).not.toThrow()
   })
 
   it('rejects an invalid color', () => {

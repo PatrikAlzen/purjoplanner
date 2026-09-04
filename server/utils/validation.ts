@@ -4,6 +4,9 @@ const hexColor = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 const looksLikeUrl = /^(https?:\/\/|\/|#)[^\s]*$/i
 
 const monthIndex = z.number().int().min(0).max(11)
+// A task's `end` may spill into the following year (12-23 = Jan-Dec of year+1),
+// allowing a task to span exactly one year boundary.
+const endMonthIndex = z.number().int().min(0).max(23)
 const linkField = z
   .string()
   .max(2000)
@@ -17,7 +20,7 @@ export const taskCreateSchema = z
     color: z.string().regex(hexColor, 'color must be a hex value like #DF9438'),
     laneId: z.string().min(1),
     start: monthIndex,
-    end: monthIndex,
+    end: endMonthIndex,
     year: z.number().int().min(1970).max(3000),
     description: z.string().max(5000).optional().default(''),
     link: linkField.optional().default('')
@@ -30,7 +33,7 @@ export const taskUpdateSchema = z
     color: z.string().regex(hexColor, 'color must be a hex value like #DF9438').optional(),
     laneId: z.string().min(1).optional(),
     start: monthIndex.optional(),
-    end: monthIndex.optional(),
+    end: endMonthIndex.optional(),
     year: z.number().int().min(1970).max(3000).optional(),
     description: z.string().max(5000).optional(),
     link: linkField.optional()

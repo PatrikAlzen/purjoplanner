@@ -2,12 +2,17 @@
 import { computed } from 'vue'
 import type { Task } from '#shared/types'
 
-const props = defineProps<{
-  task: Task
-  monthWidth: number
-  invalid: boolean
-  dragging: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    task: Task
+    monthWidth: number
+    invalid: boolean
+    dragging: boolean
+    clippedLeft?: boolean
+    clippedRight?: boolean
+  }>(),
+  { clippedLeft: false, clippedRight: false }
+)
 
 const emit = defineEmits<{
   (e: 'pointerdown-move', ev: PointerEvent): void
@@ -25,15 +30,17 @@ const style = computed(() => ({
 <template>
   <div
     class="task"
-    :class="{ invalid, dragging }"
+    :class="{ invalid, dragging, 'clipped-left': clippedLeft, 'clipped-right': clippedRight }"
     :style="style"
     :data-task-id="task.id"
     role="button"
     tabindex="0"
-    :aria-label="`${task.name} task`"
+    :aria-label="`${task.name} task${clippedLeft ? ' (continues from previous year)' : ''}${clippedRight ? ' (continues into next year)' : ''}`"
     @pointerdown="emit('pointerdown-move', $event)"
   >
+    <span v-if="clippedLeft" class="task-continuation left" aria-hidden="true">‹</span>
     <div
+      v-if="!clippedLeft"
       class="task-handle left"
       role="slider"
       tabindex="-1"
@@ -55,12 +62,14 @@ const style = computed(() => ({
       🔗
     </a>
     <div
+      v-if="!clippedRight"
       class="task-handle right"
       role="slider"
       tabindex="-1"
       aria-label="Resize task end"
       @pointerdown.stop="emit('pointerdown-resize-right', $event)"
     />
+    <span v-if="clippedRight" class="task-continuation right" aria-hidden="true">›</span>
   </div>
 </template>
 
@@ -89,6 +98,26 @@ const style = computed(() => ({
 .task.invalid {
   outline: 2px solid #b34a3c;
   outline-offset: 2px;
+}
+.task.clipped-left {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+.task.clipped-right {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+.task-continuation {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.85;
+}
+.task-continuation.left {
+  margin-right: 2px;
+}
+.task-continuation.right {
+  margin-left: 2px;
 }
 .task-name {
   overflow: hidden;

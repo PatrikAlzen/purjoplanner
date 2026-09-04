@@ -35,6 +35,17 @@ describe('hasOverlap', () => {
   it('excludes the given task id (editing itself)', () => {
     expect(hasOverlap(base, 'lane-1', 2026, 0, 2, 'a')).toBe(false)
   })
+
+  it('detects overlap with a task that spills into the following year', () => {
+    const spanning = [{ id: 'd', laneId: 'lane-1', year: 2026, start: 10, end: 13 }]
+    // 2027 Jan-Feb overlaps the spilled Jan (index 13 -> 2027 Feb) portion.
+    expect(hasOverlap(spanning, 'lane-1', 2027, 0, 1)).toBe(true)
+  })
+
+  it('does not overlap a cross-year task when the query year is fully outside its span', () => {
+    const spanning = [{ id: 'd', laneId: 'lane-1', year: 2026, start: 10, end: 13 }]
+    expect(hasOverlap(spanning, 'lane-1', 2028, 0, 1)).toBe(false)
+  })
 })
 
 describe('findOverlap', () => {

@@ -6,9 +6,10 @@ export interface Task {
   name: string
   color: string
   laneId: string
-  start: number // 0-11 (month index, inclusive)
-  end: number // 0-11 (month index, inclusive, >= start)
-  year: number
+  start: number // 0-11 (month index within `year`, inclusive)
+  end: number // 0-23 (month index, inclusive, >= start); 12-23 = Jan-Dec of `year + 1`,
+  // allowing a task to span across exactly one year boundary.
+  year: number // the task's start year
   description: string
   link: string
   createdAt: string

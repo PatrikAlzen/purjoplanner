@@ -24,7 +24,9 @@ export const useBoardStore = defineStore('board', {
     tasksForYear:
       (state) =>
       (year: number): Task[] =>
-        state.tasks.filter((t) => t.year === year),
+        // A task is visible in `year` if its (possibly cross-year-spilling)
+        // range overlaps that year's 12 months.
+        state.tasks.filter((t) => t.year === year || (t.year === year - 1 && t.end > 11)),
     laneById:
       (state) =>
       (id: string): Lane | undefined =>

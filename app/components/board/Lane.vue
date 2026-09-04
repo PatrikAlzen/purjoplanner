@@ -1,5 +1,7 @@
 <script setup lang="ts">
-withDefaults(
+import { ref, watch } from 'vue'
+
+const props = withDefaults(
   defineProps<{
     name: string
     canRemove: boolean
@@ -13,15 +15,41 @@ const emit = defineEmits<{
   (e: 'remove'): void
 }>()
 
+// Local draft so the input can be freely cleared while typing without
+// immediately round-tripping an invalid (empty) name to the server on every
+// keystroke, which previously caused the field to revert mid-edit.
+const draft = ref(props.name)
+let debounceTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(
+  () => props.name,
+  (next) => {
+    if (next !== draft.value) draft.value = next
+  }
+)
+
 function onInput(e: Event) {
-  emit('rename', (e.target as HTMLInputElement).value)
+  draft.value = (e.target as HTMLInputElement).value
+  clearTimeout(debounceTimer)
+  const trimmed = draft.value.trim()
+  if (trimmed === '') return
+  debounceTimer = setTimeout(() => emit('rename', draft.value), 300)
+}
+
+function onBlur() {
+  clearTimeout(debounceTimer)
+  if (draft.value.trim() === '') {
+    draft.value = props.name
+    return
+  }
+  if (draft.value !== props.name) emit('rename', draft.value)
 }
 </script>
 
 <template>
   <div class="lane" :class="{ even }">
     <div class="label-col lane-label">
-      <input :value="name" placeholder="Lane name" @input="onInput" />
+      <input v-model="draft" placeholder="Lane name" @input="onInput" @blur="onBlur" />
       <button
         v-if="canRemove"
         class="lane-remove"
