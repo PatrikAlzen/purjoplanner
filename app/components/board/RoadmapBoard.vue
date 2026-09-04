@@ -48,20 +48,25 @@ function taskViewSpan(task: Task, year: number): TaskViewSpan | null {
 
 // --- Geometry --------------------------------------------------------
 const boardWrapEl = ref<HTMLElement | null>(null)
+const boardEl = ref<HTMLElement | null>(null)
 const monthWidth = ref(0)
 let resizeObserver: ResizeObserver | null = null
 
 function measure() {
-  if (!boardWrapEl.value) return
-  const width = boardWrapEl.value.clientWidth
+  // Measure the inner `.board` element (no padding of its own) rather than
+  // `.board-wrap`, whose horizontal padding would otherwise be counted as
+  // part of the 12-month track and make monthWidth too large — an error
+  // that compounds every month, making later-year tasks drift rightwards.
+  if (!boardEl.value) return
+  const width = boardEl.value.clientWidth
   monthWidth.value = Math.max(0, (width - 150) / 12)
 }
 
 onMounted(() => {
   measure()
-  if (typeof ResizeObserver !== 'undefined' && boardWrapEl.value) {
+  if (typeof ResizeObserver !== 'undefined' && boardEl.value) {
     resizeObserver = new ResizeObserver(() => measure())
-    resizeObserver.observe(boardWrapEl.value)
+    resizeObserver.observe(boardEl.value)
   }
   window.addEventListener('resize', measure)
 })
@@ -174,7 +179,7 @@ async function addLane() {
 
 <template>
   <div ref="boardWrapEl" class="board-wrap">
-    <div class="board">
+    <div ref="boardEl" class="board">
       <MonthHeader />
 
     <div v-if="laneRows.length === 0" class="empty-state">
