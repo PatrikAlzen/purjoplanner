@@ -1,0 +1,47 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+
+:root {
+  /* Fallback palette; overridden per-theme via inline CSS custom properties
+     applied at the app root (see useTheme.ts / ThemeRoot in app.vue). */
+  --paper: #eaece4;
+  --paper-alt: #e1e4d9;
+  --line: #c7cdbe;
+  --line-strong: #aeb6a2;
+  --ink: #232b24;
+  --ink-soft: #5b6558;
+  --header-bg: #1e2c27;
+  --header-fg: #edefe6;
+  --accent: #df9438;
+  --panel-bg: #f5f6f0;
+  --shadow: 0 12px 28px rgba(20, 26, 18, 0.18);
+  --radius-pill: 999px;
+  --radius-card: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#__nuxt {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+.display {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.mono {
+  font-family: 'IBM Plex Mono', monospace;
+}

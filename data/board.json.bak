@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "lanes": [
+    {
+      "id": "1a6d9ad1-5e47-4ca6-91dc-5fa5f51cb318",
+      "name": "Röd",
+      "order": 0
+    },
+    {
+      "id": "ee54c7d0-053c-49d2-be9c-771be5bf33d4",
+      "name": "Lane 2",
+      "order": 1
+    },
+    {
+      "id": "93eceae7-3629-4705-9dea-8767077f9895",
+      "name": "Lane 3",
+      "order": 2
+    },
+    {
+      "id": "94599cad-2c2e-47ef-877e-af336a1eaa07",
+      "name": "Lane 4",
+      "order": 3
+    },
+    {
+      "id": "0d469417-2399-42d3-9fe4-4b401d84d6d3",
+      "name": "Lane 5",
+      "order": 4
+    },
+    {
+      "id": "1d25f45a-05ef-42b1-8d2e-72e5f310ba45",
+      "name": "Lane 6",
+      "order": 5
+    }
+  ],
+  "tasks": [
+    {
+      "id": "7eb1c2e5-57b1-4818-9caa-30cfe926dd3d",
+      "name": "Ny bygg- och deployprocess",
+      "color": "#C9584A",
+      "laneId": "1a6d9ad1-5e47-4ca6-91dc-5fa5f51cb318",
+      "start": 10,
+      "end": 11,
+      "year": 2026,
+      "description": "",
+      "link": "",
+      "createdAt": "2026-09-04T18:01:08.621Z",
+      "updatedAt": "2026-09-04T18:02:07.842Z"
+    }
+  ],
+  "activeThemeId": "slate-amber"
+}

@@ -1,0 +1,35 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# App data (file-based storage) - keep directory, ignore generated data files
+/data/*.json
+/data/backups/
+!/data/.gitkeep
+
+# Test artifacts
+/playwright-report
+/test-results
+/coverage
+/.playwright-data
