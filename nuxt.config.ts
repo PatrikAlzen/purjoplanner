@@ -7,11 +7,11 @@ export default defineNuxtConfig({
   components: [{ path: '~/components', pathPrefix: false }],
   app: {
     head: {
-      title: 'Waypoint — Roadmap Planner',
+      title: 'Purjoplanner — Roadmap',
       meta: [
         {
           name: 'description',
-          content: 'Waypoint is a self-hosted roadmap planning tool: drag and resize colored tasks across month-by-month lanes.'
+          content: 'Purjoplanner is a self-hosted roadmap planning tool: drag and resize colored tasks across month-by-month lanes.'
         }
       ],
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }]

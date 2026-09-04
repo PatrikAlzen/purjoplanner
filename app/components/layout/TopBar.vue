@@ -12,7 +12,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="topbar">
-    <h1>Waypoint</h1>
+    <h1>PurjoPlanner</h1>
     <div class="year-nav">
       <button aria-label="Previous year" @click="emit('prev-year')">‹</button>
       <span class="mono">{{ year }}</span>

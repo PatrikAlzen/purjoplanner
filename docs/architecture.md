@@ -1,6 +1,6 @@
 # Architecture
 
-Waypoint is a Nuxt 4 application (Vue 3 + Nitro) for planning a year-long,
+Purjoplanner is a Nuxt 4 application (Vue 3 + Nitro) for planning a year-long,
 month-by-month roadmap of draggable/resizable tasks ("sausages") grouped into
 lanes, with a file-based JSON backend and a fully customizable theming system.
 

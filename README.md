@@ -1,6 +1,6 @@
-# Waypoint
+# Purjoplanner
 
-Waypoint is a lightweight, self-hosted roadmap planning tool: a month-by-month
+Purjoplanner is a lightweight, self-hosted roadmap planning tool: a month-by-month
 (Jan-Dec) board where you drag & resize colored task "sausages" across lanes,
 attach descriptions and ticket/wiki links, and theme the whole board to match
 your team's style. Data is stored as plain JSON files on disk — no database
@@ -72,7 +72,7 @@ default lanes and themes) on first run. Override the location with the
 `NUXT_DATA_DIR` environment variable, e.g.:
 
 ```bash
-NUXT_DATA_DIR=/var/lib/waypoint npm run preview
+NUXT_DATA_DIR=/var/lib/purjoplanner npm run preview
 ```
 
 Every write is atomic (temp file + rename) and keeps a `.bak` copy of the

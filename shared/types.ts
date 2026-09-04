@@ -1,4 +1,4 @@
-// Shared domain types for the Waypoint roadmap planner.
+// Shared domain types for the Purjoplanner roadmap.
 // Used by both the Nuxt app (client) and the Nitro server routes.
 
 export interface Task {

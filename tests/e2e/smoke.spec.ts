@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test'
 
-test.describe('Waypoint roadmap planner smoke test', () => {
+test.describe('PurjoPlanner roadmap planner smoke test', () => {
   test('load board, create a task, edit it, switch theme, add/remove a lane, and persist across reload', async ({ page }) => {
     await page.goto('/')
 
-    await expect(page.getByRole('heading', { name: 'Waypoint' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'PurjoPlanner' })).toBeVisible()
 
     // Wait for hydration + initial board data load to finish before interacting.
     await expect(page.locator('.lane-label input').first()).toHaveValue(/.+/)

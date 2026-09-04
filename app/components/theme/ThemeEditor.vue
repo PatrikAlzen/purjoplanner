@@ -205,6 +205,7 @@ async function deleteExisting() {
   justify-content: space-between;
   gap: 8px;
   font-size: 12.5px;
+  color: black;
 }
 .color-field input[type='color'] {
   width: 34px;

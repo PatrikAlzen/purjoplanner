@@ -1,6 +1,6 @@
 # Theming
 
-Waypoint themes are plain data — a `Theme` is just an id, a name, a
+PurjoPlanner themes are plain data — a `Theme` is just an id, a name, a
 `builtIn` flag, a flat `colors` object, and an ordered `palette` array of hex
 colors used for task coloring. There's no CSS-in-JS or per-theme stylesheet;
 every visual color in the app is driven by a small set of CSS custom
