@@ -81,3 +81,27 @@ export const themeUpdateSchema = z.object({
 export const activeThemeSchema = z.object({
   themeId: z.string().min(1)
 })
+
+// A small avatar image, sent as a data URL (e.g. `data:image/png;base64,...`).
+// Capped well above what a small square thumbnail needs, to keep boards.json small.
+const avatarField = z
+  .string()
+  .max(400_000)
+  .refine((v) => v === '' || /^data:image\//i.test(v), {
+    message: 'avatar must be an image data URL'
+  })
+  .nullable()
+
+export const boardCreateSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  avatar: avatarField.optional()
+})
+
+export const boardUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  avatar: avatarField.optional()
+})
+
+export const setActiveBoardSchema = z.object({
+  boardId: z.string().min(1)
+})

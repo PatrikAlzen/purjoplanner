@@ -50,6 +50,20 @@ export interface BoardData {
   activeThemeId: string
 }
 
+export interface Board {
+  id: string
+  name: string
+  avatar: string | null // small image as a data URL, or null for no avatar
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BoardsIndex {
+  version: 1
+  boards: Board[]
+  activeBoardId: string
+}
+
 export interface ThemesData {
   version: 1
   themes: Theme[]
@@ -70,3 +84,6 @@ export type LaneUpdateInput = Partial<Pick<Lane, 'name' | 'order'>>
 
 export type ThemeCreateInput = Pick<Theme, 'name' | 'colors' | 'palette'>
 export type ThemeUpdateInput = Partial<Pick<Theme, 'name' | 'colors' | 'palette'>>
+
+export type BoardCreateInput = Pick<Board, 'name'> & Partial<Pick<Board, 'avatar'>>
+export type BoardUpdateInput = Partial<Pick<Board, 'name' | 'avatar'>>

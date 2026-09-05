@@ -63,6 +63,9 @@ async function addNewTask() {
 <template>
   <div>
     <TopBar :anchor-month="anchorMonth" @prev-month="prevMonth" @next-month="nextMonth" @new-task="addNewTask">
+      <template #board-switcher>
+        <BoardSwitcher />
+      </template>
       <template #theme-picker>
         <ThemePicker />
       </template>

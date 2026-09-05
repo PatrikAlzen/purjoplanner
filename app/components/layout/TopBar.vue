@@ -25,6 +25,7 @@ const rangeLabel = computed(() => `${label(props.anchorMonth)} – ${label(props
 <template>
   <div class="topbar">
     <h1>PurjoPlanner</h1>
+    <slot name="board-switcher" />
     <div class="year-nav">
       <button aria-label="Previous month" @click="emit('prev-month')">‹</button>
       <span class="mono">{{ rangeLabel }}</span>

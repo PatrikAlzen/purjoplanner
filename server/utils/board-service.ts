@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { createError } from 'h3'
-import type { Lane, Task } from '../../shared/types'
+import type { Board, Lane, Task } from '../../shared/types'
 import { findOverlap } from '../../shared/collision'
-import { mutateBoard, readBoard, DEFAULT_THEME_ID } from './store'
+import { mutateBoard, readBoard, DEFAULT_THEME_ID, readBoardsIndex, mutateBoardsIndex, createBoardDataFile, deleteBoardDataFile } from './store'
 import { parseWithSchema } from './http'
 import {
   laneCreateSchema,
   laneUpdateSchema,
   taskCreateSchema,
-  taskUpdateSchema
+  taskUpdateSchema,
+  boardCreateSchema,
+  boardUpdateSchema
 } from './validation'
 
 function nowIso(): string {
@@ -17,6 +19,70 @@ function nowIso(): string {
 
 export async function getBoard() {
   return readBoard()
+}
+
+// ---------------------------------------------------------------------------
+// Boards (multi-board management)
+// ---------------------------------------------------------------------------
+
+export async function listBoards(): Promise<{ boards: Board[]; activeBoardId: string }> {
+  const index = await readBoardsIndex()
+  return { boards: index.boards, activeBoardId: index.activeBoardId }
+}
+
+export async function createBoard(input: unknown): Promise<Board> {
+  const parsed = parseWithSchema(boardCreateSchema, input)
+  const id = randomUUID()
+  const ts = nowIso()
+  const board: Board = { id, name: parsed.name, avatar: parsed.avatar ?? null, createdAt: ts, updatedAt: ts }
+  await createBoardDataFile(id)
+  const { result } = await mutateBoardsIndex((index) => {
+    index.boards.push(board)
+    return board
+  })
+  return result
+}
+
+export async function updateBoard(id: string, input: unknown): Promise<Board> {
+  const parsed = parseWithSchema(boardUpdateSchema, input)
+  const { result } = await mutateBoardsIndex((index) => {
+    const board = index.boards.find((b) => b.id === id)
+    if (!board) {
+      throw createError({ statusCode: 404, statusMessage: 'Board not found' })
+    }
+    if (parsed.name !== undefined) board.name = parsed.name
+    if (parsed.avatar !== undefined) board.avatar = parsed.avatar
+    board.updatedAt = nowIso()
+    return board
+  })
+  return result
+}
+
+export async function deleteBoard(id: string): Promise<void> {
+  await mutateBoardsIndex((index) => {
+    if (!index.boards.some((b) => b.id === id)) {
+      throw createError({ statusCode: 404, statusMessage: 'Board not found' })
+    }
+    if (index.boards.length <= 1) {
+      throw createError({ statusCode: 409, statusMessage: 'Cannot delete the last remaining board' })
+    }
+    index.boards = index.boards.filter((b) => b.id !== id)
+    if (index.activeBoardId === id) {
+      index.activeBoardId = index.boards[0].id
+    }
+  })
+  await deleteBoardDataFile(id)
+}
+
+export async function setActiveBoard(id: string): Promise<{ activeBoardId: string }> {
+  const { result } = await mutateBoardsIndex((index) => {
+    if (!index.boards.some((b) => b.id === id)) {
+      throw createError({ statusCode: 404, statusMessage: 'Board not found' })
+    }
+    index.activeBoardId = id
+    return id
+  })
+  return { activeBoardId: result }
 }
 
 // ---------------------------------------------------------------------------

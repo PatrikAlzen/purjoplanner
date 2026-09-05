@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "lanes": [
+    {
+      "id": "ebd1e095-1610-4b95-a7b0-8c663db8097d",
+      "name": "Lane 1",
+      "order": 0
+    },
+    {
+      "id": "61cd7fa3-f04d-4774-90c4-f7acb88f3238",
+      "name": "Lane 2",
+      "order": 1
+    },
+    {
+      "id": "d6bd855f-440f-42a1-8d30-74eeae3bdd09",
+      "name": "Lane 3",
+      "order": 2
+    }
+  ],
+  "tasks": [
+    {
+      "id": "d3ba8fa5-bfb0-4da6-9b90-d03c7509d482",
+      "name": "New task",
+      "color": "#7A6FB0",
+      "laneId": "ebd1e095-1610-4b95-a7b0-8c663db8097d",
+      "start": 10,
+      "end": 11,
+      "year": 2026,
+      "description": "",
+      "link": "",
+      "createdAt": "2026-09-05T17:04:38.455Z",
+      "updatedAt": "2026-09-05T17:04:49.279Z"
+    }
+  ],
+  "activeThemeId": "4c8254d0-fbae-4a30-b4f1-d5fbfe3a96ee"
+}

@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile, rename, copyFile, access } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rename, copyFile, access, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { BoardData, ThemesData } from '../../shared/types'
+import type { Board, BoardData, BoardsIndex, ThemesData } from '../../shared/types'
 
 /**
  * Resolves the directory used to store the board/theme JSON files.
@@ -12,8 +12,11 @@ export function getDataDir(): string {
   return fromEnv && fromEnv.trim() !== '' ? fromEnv : join(process.cwd(), 'data')
 }
 
-const BOARD_FILE = 'board.json'
+const BOARD_FILE = 'board.json' // legacy single-board file, kept for migration
 const THEMES_FILE = 'themes.json'
+const BOARDS_INDEX_FILE = 'boards.json'
+const BOARDS_SUBDIR = 'boards'
+const DEFAULT_BOARD_NAME = 'My Board'
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -28,6 +31,16 @@ async function ensureDataDir(): Promise<string> {
   const dir = getDataDir()
   await mkdir(dir, { recursive: true })
   return dir
+}
+
+async function ensureBoardsSubdir(dir: string): Promise<string> {
+  const boardsDir = join(dir, BOARDS_SUBDIR)
+  await mkdir(boardsDir, { recursive: true })
+  return boardsDir
+}
+
+function boardDataFilePath(dir: string, boardId: string): string {
+  return join(dir, BOARDS_SUBDIR, `${boardId}.json`)
 }
 
 // ---------------------------------------------------------------------------
@@ -185,14 +198,88 @@ export function createDefaultBoard(): BoardData {
   }
 }
 
+function createBoardMeta(id: string, name: string): Board {
+  const ts = new Date().toISOString()
+  return { id, name, avatar: null, createdAt: ts, updatedAt: ts }
+}
+
 // ---------------------------------------------------------------------------
 // Public read/write API
 // ---------------------------------------------------------------------------
 
-/** Reads the board file, auto-seeding default lanes/tasks/theme on first run. */
+/**
+ * Reads the boards index, migrating from the legacy single-board.json layout
+ * (or seeding a brand-new default board) the first time it's needed.
+ */
+async function ensureBoardsIndex(dir: string, indexPath: string): Promise<BoardsIndex> {
+  const existing = await readJson<BoardsIndex>(indexPath)
+  if (existing) return existing
+
+  await ensureBoardsSubdir(dir)
+  const legacyBoard = await readJson<BoardData>(join(dir, BOARD_FILE))
+  const id = randomUUID()
+  await writeJsonAtomic(boardDataFilePath(dir, id), legacyBoard ?? createDefaultBoard())
+  const index: BoardsIndex = {
+    version: 1,
+    boards: [createBoardMeta(id, DEFAULT_BOARD_NAME)],
+    activeBoardId: id
+  }
+  await writeJsonAtomic(indexPath, index)
+  return index
+}
+
+export async function readBoardsIndex(): Promise<BoardsIndex> {
+  const dir = await ensureDataDir()
+  const indexPath = join(dir, BOARDS_INDEX_FILE)
+  return withFileLock(indexPath, () => ensureBoardsIndex(dir, indexPath))
+}
+
+/** Runs `mutator` with exclusive access to the boards index, persisting the result. */
+export async function mutateBoardsIndex<T>(
+  mutator: (index: BoardsIndex) => T | Promise<T>
+): Promise<{ result: T; index: BoardsIndex }> {
+  const dir = await ensureDataDir()
+  const indexPath = join(dir, BOARDS_INDEX_FILE)
+  return withFileLock(indexPath, async () => {
+    const existing = await ensureBoardsIndex(dir, indexPath)
+    const result = await mutator(existing)
+    await writeJsonAtomic(indexPath, existing)
+    return { result, index: existing }
+  })
+}
+
+async function resolveActiveBoardId(): Promise<string> {
+  const index = await readBoardsIndex()
+  return index.activeBoardId
+}
+
+/** Creates a brand-new, empty board data file for `boardId`. */
+export async function createBoardDataFile(boardId: string): Promise<void> {
+  const dir = await ensureDataDir()
+  await ensureBoardsSubdir(dir)
+  const filePath = boardDataFilePath(dir, boardId)
+  return withFileLock(filePath, () => writeJsonAtomic(filePath, createDefaultBoard()))
+}
+
+/** Deletes a board's data file. Best-effort: ignores a missing file. */
+export async function deleteBoardDataFile(boardId: string): Promise<void> {
+  const dir = await ensureDataDir()
+  const filePath = boardDataFilePath(dir, boardId)
+  return withFileLock(filePath, async () => {
+    try {
+      await unlink(filePath)
+    } catch {
+      // Already gone; nothing to do.
+    }
+  })
+}
+
+/** Reads the active board's data, auto-seeding default lanes/tasks/theme on first run. */
 export async function readBoard(): Promise<BoardData> {
   const dir = await ensureDataDir()
-  const filePath = join(dir, BOARD_FILE)
+  await ensureBoardsSubdir(dir)
+  const boardId = await resolveActiveBoardId()
+  const filePath = boardDataFilePath(dir, boardId)
   return withFileLock(filePath, async () => {
     const existing = await readJson<BoardData>(filePath)
     if (existing) return existing
@@ -202,10 +289,12 @@ export async function readBoard(): Promise<BoardData> {
   })
 }
 
-/** Overwrites the board file atomically. Prefer `mutateBoard` for read-modify-write. */
+/** Overwrites the active board's data file atomically. Prefer `mutateBoard` for read-modify-write. */
 export async function writeBoard(board: BoardData): Promise<void> {
   const dir = await ensureDataDir()
-  const filePath = join(dir, BOARD_FILE)
+  await ensureBoardsSubdir(dir)
+  const boardId = await resolveActiveBoardId()
+  const filePath = boardDataFilePath(dir, boardId)
   return withFileLock(filePath, () => writeJsonAtomic(filePath, board))
 }
 
@@ -229,12 +318,14 @@ export async function writeThemes(themes: ThemesData): Promise<void> {
   return withFileLock(filePath, () => writeJsonAtomic(filePath, themes))
 }
 
-/** Runs `mutator` with exclusive access to the board file, persisting the result. */
+/** Runs `mutator` with exclusive access to the active board's data file, persisting the result. */
 export async function mutateBoard<T>(
   mutator: (board: BoardData) => T | Promise<T>
 ): Promise<{ result: T; board: BoardData }> {
   const dir = await ensureDataDir()
-  const filePath = join(dir, BOARD_FILE)
+  await ensureBoardsSubdir(dir)
+  const boardId = await resolveActiveBoardId()
+  const filePath = boardDataFilePath(dir, boardId)
   return withFileLock(filePath, async () => {
     const existing = (await readJson<BoardData>(filePath)) ?? createDefaultBoard()
     const result = await mutator(existing)
