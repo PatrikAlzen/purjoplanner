@@ -13,6 +13,7 @@ const editingName = ref('')
 const creating = ref(false)
 const newBoardName = ref('')
 const busy = ref(false)
+const pendingDelete = ref<{ id: string; name: string } | null>(null)
 
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
@@ -62,10 +63,21 @@ async function onAvatarChange(id: string, e: Event) {
   }
 }
 
-async function removeBoard(id: string) {
+function requestRemoveBoard(id: string, name: string) {
   if (boardsStore.boards.length <= 1) return
-  const wasActive = id === boardsStore.activeBoardId
-  await boardsStore.removeBoard(id)
+  pendingDelete.value = { id, name }
+}
+
+function cancelRemoveBoard() {
+  pendingDelete.value = null
+}
+
+async function confirmRemoveBoard() {
+  const target = pendingDelete.value
+  if (!target) return
+  pendingDelete.value = null
+  const wasActive = target.id === boardsStore.activeBoardId
+  await boardsStore.removeBoard(target.id)
   if (wasActive) await boardStore.load()
 }
 
@@ -121,7 +133,7 @@ async function commitCreate() {
           class="icon-btn"
           title="Delete board"
           :disabled="boardsStore.boards.length <= 1"
-          @click="removeBoard(board.id)"
+          @click="requestRemoveBoard(board.id, board.name)"
         >
           🗑
         </button>
@@ -141,6 +153,16 @@ async function commitCreate() {
       </div>
       <button v-else class="menu-item" @click="startCreate">+ New board</button>
     </div>
+
+    <ConfirmDialog
+      v-if="pendingDelete"
+      title="Delete board?"
+      :message="`This permanently deletes “${pendingDelete.name}” and all of its lanes and tasks. This can't be undone.`"
+      confirm-label="Delete board"
+      danger
+      @confirm="confirmRemoveBoard"
+      @cancel="cancelRemoveBoard"
+    />
   </div>
 </template>
 

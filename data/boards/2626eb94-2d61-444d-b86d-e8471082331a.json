@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "lanes": [
+    {
+      "id": "6851b6ee-1894-4bd7-8751-8d5cdcb1229a",
+      "name": "Lane 1",
+      "order": 0
+    },
+    {
+      "id": "6262730f-8dac-443a-a6b2-3662d20a6015",
+      "name": "Lane 2",
+      "order": 1
+    },
+    {
+      "id": "00f6a417-28f1-4422-88b8-f0c78130b3ff",
+      "name": "Lane 3",
+      "order": 2
+    }
+  ],
+  "tasks": [],
+  "activeThemeId": "slate-amber"
+}
