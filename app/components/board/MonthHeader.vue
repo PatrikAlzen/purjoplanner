@@ -22,7 +22,7 @@ const cells = computed(() =>
 
 <template>
   <div class="row-shell month-header">
-    <div class="label-col" />
+    <div class="label-nocol" />
     <div class="track-col months">
       <div v-for="cell in cells" :key="cell.key" class="month-cell">
         {{ cell.label }}
@@ -44,6 +44,13 @@ const cells = computed(() =>
   left: 0;
   z-index: 3;
   background: var(--paper);
+}
+.label-nocol {
+  width: 150px;
+  flex: 0 0 150px;
+  position: sticky;
+  left: 0;
+  z-index: 3;
 }
 .track-col {
   flex: 1;

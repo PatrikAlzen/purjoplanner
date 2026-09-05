@@ -70,6 +70,7 @@ function onBlur() {
 .lane {
   display: flex;
   align-items: stretch;
+  background: var(--paper);
 }
 .label-col {
   width: 150px;
