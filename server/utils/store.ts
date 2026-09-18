@@ -1,10 +1,12 @@
-import { mkdir, readFile, writeFile, rename, copyFile, access, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import Database from 'better-sqlite3'
+import { mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs'
+import { join, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Board, BoardData, BoardsIndex, ThemesData } from '../../shared/types'
 
 /**
- * Resolves the directory used to store the board/theme JSON files.
+ * Resolves the directory used to store the SQLite database file (and, for
+ * migration purposes, where the legacy JSON files used to live).
  * Overridable via the NUXT_DATA_DIR env var (see nuxt.config.ts runtimeConfig).
  */
 export function getDataDir(): string {
@@ -12,95 +14,13 @@ export function getDataDir(): string {
   return fromEnv && fromEnv.trim() !== '' ? fromEnv : join(process.cwd(), 'data')
 }
 
-const BOARD_FILE = 'board.json' // legacy single-board file, kept for migration
-const THEMES_FILE = 'themes.json'
-const BOARDS_INDEX_FILE = 'boards.json'
-const BOARDS_SUBDIR = 'boards'
+const DB_FILE = 'app.db'
 const DEFAULT_BOARD_NAME = 'My Board'
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function ensureDataDir(): Promise<string> {
-  const dir = getDataDir()
-  await mkdir(dir, { recursive: true })
-  return dir
-}
-
-async function ensureBoardsSubdir(dir: string): Promise<string> {
-  const boardsDir = join(dir, BOARDS_SUBDIR)
-  await mkdir(boardsDir, { recursive: true })
-  return boardsDir
-}
-
-function boardDataFilePath(dir: string, boardId: string): string {
-  return join(dir, BOARDS_SUBDIR, `${boardId}.json`)
-}
+const ACTIVE_BOARD_KEY = 'activeBoardId'
+const THEMES_ROW_ID = 1
 
 // ---------------------------------------------------------------------------
-// Per-file async mutex so concurrent requests serialize writes/reads-modify-writes
-// against the same JSON file within this process.
-// ---------------------------------------------------------------------------
-const locks = new Map<string, Promise<unknown>>()
-
-async function withFileLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const previous = locks.get(key) ?? Promise.resolve()
-  let release: () => void
-  const current = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  locks.set(
-    key,
-    previous.then(() => current)
-  )
-  await previous
-  try {
-    return await fn()
-  } finally {
-    release!()
-    if (locks.get(key) === previous.then(() => current)) {
-      locks.delete(key)
-    }
-  }
-}
-
-/**
- * Writes `data` to `filePath` atomically: serializes to a sibling temp file,
- * then renames it over the target (atomic on POSIX filesystems). Keeps a
- * `.bak` copy of whatever was previously on disk before overwriting it.
- */
-async function writeJsonAtomic(filePath: string, data: unknown): Promise<void> {
-  const dir = await ensureDataDir()
-  const tmpPath = join(dir, `.${Date.now()}-${randomUUID()}.tmp`)
-  const backupPath = `${filePath}.bak`
-
-  if (await pathExists(filePath)) {
-    try {
-      await copyFile(filePath, backupPath)
-    } catch {
-      // Backup is best-effort; do not block the write on backup failure.
-    }
-  }
-
-  await writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf-8')
-  await rename(tmpPath, filePath)
-}
-
-async function readJson<T>(filePath: string): Promise<T | undefined> {
-  if (!(await pathExists(filePath))) return undefined
-  const raw = await readFile(filePath, 'utf-8')
-  if (raw.trim() === '') return undefined
-  return JSON.parse(raw) as T
-}
-
-// ---------------------------------------------------------------------------
-// Default / seed data
+// Default / seed data (unchanged from the file-based store)
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_THEME_ID = 'slate-amber'
@@ -204,48 +124,191 @@ function createBoardMeta(id: string, name: string): Board {
 }
 
 // ---------------------------------------------------------------------------
-// Public read/write API
+// Database bootstrap
 // ---------------------------------------------------------------------------
 
-/**
- * Reads the boards index, migrating from the legacy single-board.json layout
- * (or seeding a brand-new default board) the first time it's needed.
- */
-async function ensureBoardsIndex(dir: string, indexPath: string): Promise<BoardsIndex> {
-  const existing = await readJson<BoardsIndex>(indexPath)
-  if (existing) return existing
+let _db: Database.Database | null = null
 
-  await ensureBoardsSubdir(dir)
-  const legacyBoard = await readJson<BoardData>(join(dir, BOARD_FILE))
-  const id = randomUUID()
-  await writeJsonAtomic(boardDataFilePath(dir, id), legacyBoard ?? createDefaultBoard())
-  const index: BoardsIndex = {
-    version: 1,
-    boards: [createBoardMeta(id, DEFAULT_BOARD_NAME)],
-    activeBoardId: id
+function openDb(): Database.Database {
+  const dir = getDataDir()
+  mkdirSync(dir, { recursive: true })
+  const db = new Database(join(dir, DB_FILE))
+  db.pragma('journal_mode = WAL')
+  db.pragma('foreign_keys = ON')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS boards (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      avatar TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS board_data (
+      boardId TEXT PRIMARY KEY REFERENCES boards(id) ON DELETE CASCADE,
+      data TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS themes (
+      id INTEGER PRIMARY KEY CHECK (id = ${THEMES_ROW_ID}),
+      data TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `)
+
+  migrateLegacyFilesIfPresent(db, dir)
+
+  return db
+}
+
+function getDb(): Database.Database {
+  if (!_db) _db = openDb()
+  return _db
+}
+
+// ---------------------------------------------------------------------------
+// One-time migration from the old data/*.json layout, if a fresh SQLite db
+// finds legacy files sitting next to it. Safe to leave this in permanently:
+// it's a no-op once the `boards` table has any rows.
+// ---------------------------------------------------------------------------
+
+function migrateLegacyFilesIfPresent(db: Database.Database, dir: string): void {
+  const boardCount = (db.prepare('SELECT COUNT(*) as c FROM boards').get() as { c: number }).c
+  if (boardCount > 0) return // already has data, nothing to migrate
+
+  const boardsIndexPath = join(dir, 'boards.json')
+  const legacyBoardPath = join(dir, 'board.json')
+  const themesPath = join(dir, 'themes.json')
+  const boardsDir = join(dir, 'boards')
+
+  const readJsonSafe = <T>(path: string): T | undefined => {
+    if (!existsSync(path)) return undefined
+    const raw = readFileSync(path, 'utf-8')
+    if (raw.trim() === '') return undefined
+    return JSON.parse(raw) as T
   }
-  await writeJsonAtomic(indexPath, index)
-  return index
+
+  const insertBoard = db.prepare(
+    'INSERT INTO boards (id, name, avatar, createdAt, updatedAt) VALUES (@id, @name, @avatar, @createdAt, @updatedAt)'
+  )
+  const insertBoardData = db.prepare('INSERT INTO board_data (boardId, data) VALUES (?, ?)')
+  const setSetting = db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  )
+  const setThemes = db.prepare(
+    `INSERT INTO themes (id, data) VALUES (${THEMES_ROW_ID}, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`
+  )
+
+  const importFromMultiBoardLayout = db.transaction(() => {
+    const index = readJsonSafe<BoardsIndex>(boardsIndexPath)!
+    for (const board of index.boards) {
+      insertBoard.run(board)
+      if (existsSync(boardsDir)) {
+        const dataPath = join(boardsDir, `${board.id}.json`)
+        const data = readJsonSafe<BoardData>(dataPath) ?? createDefaultBoard()
+        insertBoardData.run(board.id, JSON.stringify(data))
+      }
+    }
+    setSetting.run(ACTIVE_BOARD_KEY, index.activeBoardId)
+  })
+
+  const importFromLegacySingleBoard = db.transaction(() => {
+    const legacyBoard = readJsonSafe<BoardData>(legacyBoardPath) ?? createDefaultBoard()
+    const id = randomUUID()
+    insertBoard.run(createBoardMeta(id, DEFAULT_BOARD_NAME))
+    insertBoardData.run(id, JSON.stringify(legacyBoard))
+    setSetting.run(ACTIVE_BOARD_KEY, id)
+  })
+
+  if (existsSync(boardsIndexPath)) {
+    importFromMultiBoardLayout()
+  } else if (existsSync(legacyBoardPath)) {
+    importFromLegacySingleBoard()
+  }
+
+  const themes = readJsonSafe<ThemesData>(themesPath)
+  if (themes) setThemes.run(JSON.stringify(themes))
+}
+
+// ---------------------------------------------------------------------------
+// Boards index
+// ---------------------------------------------------------------------------
+
+function loadBoardsIndex(db: Database.Database): BoardsIndex {
+  const boards = db
+    .prepare('SELECT id, name, avatar, createdAt, updatedAt FROM boards ORDER BY createdAt ASC')
+    .all() as Board[]
+  const activeRow = db.prepare('SELECT value FROM settings WHERE key = ?').get(ACTIVE_BOARD_KEY) as
+    | { value: string }
+    | undefined
+  return { version: 1, boards, activeBoardId: activeRow?.value ?? '' }
+}
+
+function saveBoardsIndex(db: Database.Database, index: BoardsIndex): void {
+  const upsertBoard = db.prepare(`
+    INSERT INTO boards (id, name, avatar, createdAt, updatedAt)
+    VALUES (@id, @name, @avatar, @createdAt, @updatedAt)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      avatar = excluded.avatar,
+      updatedAt = excluded.updatedAt
+  `)
+  for (const board of index.boards) upsertBoard.run(board)
+
+  const keepIds = index.boards.map((b) => b.id)
+  if (keepIds.length > 0) {
+    const placeholders = keepIds.map(() => '?').join(',')
+    db.prepare(`DELETE FROM boards WHERE id NOT IN (${placeholders})`).run(...keepIds)
+  } else {
+    db.prepare('DELETE FROM boards').run()
+  }
+
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(ACTIVE_BOARD_KEY, index.activeBoardId)
+}
+
+function ensureBoardsIndex(db: Database.Database): BoardsIndex {
+  const count = (db.prepare('SELECT COUNT(*) as c FROM boards').get() as { c: number }).c
+  if (count > 0) return loadBoardsIndex(db)
+
+  const seedDefaultBoard = db.transaction(() => {
+    const id = randomUUID()
+    db.prepare(
+      'INSERT INTO boards (id, name, avatar, createdAt, updatedAt) VALUES (?, ?, NULL, ?, ?)'
+    ).run(id, DEFAULT_BOARD_NAME, new Date().toISOString(), new Date().toISOString())
+    db.prepare('INSERT INTO board_data (boardId, data) VALUES (?, ?)').run(
+      id,
+      JSON.stringify(createDefaultBoard())
+    )
+    db.prepare(
+      "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    ).run(ACTIVE_BOARD_KEY, id)
+  })
+  seedDefaultBoard()
+
+  return loadBoardsIndex(db)
 }
 
 export async function readBoardsIndex(): Promise<BoardsIndex> {
-  const dir = await ensureDataDir()
-  const indexPath = join(dir, BOARDS_INDEX_FILE)
-  return withFileLock(indexPath, () => ensureBoardsIndex(dir, indexPath))
+  return ensureBoardsIndex(getDb())
 }
 
 /** Runs `mutator` with exclusive access to the boards index, persisting the result. */
 export async function mutateBoardsIndex<T>(
   mutator: (index: BoardsIndex) => T | Promise<T>
 ): Promise<{ result: T; index: BoardsIndex }> {
-  const dir = await ensureDataDir()
-  const indexPath = join(dir, BOARDS_INDEX_FILE)
-  return withFileLock(indexPath, async () => {
-    const existing = await ensureBoardsIndex(dir, indexPath)
-    const result = await mutator(existing)
-    await writeJsonAtomic(indexPath, existing)
-    return { result, index: existing }
-  })
+  const db = getDb()
+  const index = ensureBoardsIndex(db)
+  const result = await mutator(index)
+  const persist = db.transaction(() => saveBoardsIndex(db, index))
+  persist()
+  return { result, index }
 }
 
 async function resolveActiveBoardId(): Promise<string> {
@@ -253,97 +316,111 @@ async function resolveActiveBoardId(): Promise<string> {
   return index.activeBoardId
 }
 
-/** Creates a brand-new, empty board data file for `boardId`. */
+/** Creates a brand-new, empty board data row for `boardId`. */
 export async function createBoardDataFile(boardId: string): Promise<void> {
-  const dir = await ensureDataDir()
-  await ensureBoardsSubdir(dir)
-  const filePath = boardDataFilePath(dir, boardId)
-  return withFileLock(filePath, () => writeJsonAtomic(filePath, createDefaultBoard()))
+  const db = getDb()
+  db.prepare(
+    `INSERT INTO board_data (boardId, data) VALUES (?, ?)
+     ON CONFLICT(boardId) DO UPDATE SET data = excluded.data`
+  ).run(boardId, JSON.stringify(createDefaultBoard()))
 }
 
-/** Deletes a board's data file. Best-effort: ignores a missing file. */
+/** Deletes a board's data row. Best-effort: no-op if it doesn't exist. */
 export async function deleteBoardDataFile(boardId: string): Promise<void> {
-  const dir = await ensureDataDir()
-  const filePath = boardDataFilePath(dir, boardId)
-  return withFileLock(filePath, async () => {
-    try {
-      await unlink(filePath)
-    } catch {
-      // Already gone; nothing to do.
-    }
-  })
+  const db = getDb()
+  db.prepare('DELETE FROM board_data WHERE boardId = ?').run(boardId)
+}
+
+// ---------------------------------------------------------------------------
+// Active board data
+// ---------------------------------------------------------------------------
+
+function loadBoardData(db: Database.Database, boardId: string): BoardData | undefined {
+  const row = db.prepare('SELECT data FROM board_data WHERE boardId = ?').get(boardId) as
+    | { data: string }
+    | undefined
+  return row ? (JSON.parse(row.data) as BoardData) : undefined
+}
+
+function saveBoardData(db: Database.Database, boardId: string, data: BoardData): void {
+  db.prepare(
+    `INSERT INTO board_data (boardId, data) VALUES (?, ?)
+     ON CONFLICT(boardId) DO UPDATE SET data = excluded.data`
+  ).run(boardId, JSON.stringify(data))
 }
 
 /** Reads the active board's data, auto-seeding default lanes/tasks/theme on first run. */
 export async function readBoard(): Promise<BoardData> {
-  const dir = await ensureDataDir()
-  await ensureBoardsSubdir(dir)
+  const db = getDb()
   const boardId = await resolveActiveBoardId()
-  const filePath = boardDataFilePath(dir, boardId)
-  return withFileLock(filePath, async () => {
-    const existing = await readJson<BoardData>(filePath)
-    if (existing) return existing
-    const seeded = createDefaultBoard()
-    await writeJsonAtomic(filePath, seeded)
-    return seeded
-  })
+  const existing = loadBoardData(db, boardId)
+  if (existing) return existing
+  const seeded = createDefaultBoard()
+  saveBoardData(db, boardId, seeded)
+  return seeded
 }
 
-/** Overwrites the active board's data file atomically. Prefer `mutateBoard` for read-modify-write. */
+/** Overwrites the active board's data row. Prefer `mutateBoard` for read-modify-write. */
 export async function writeBoard(board: BoardData): Promise<void> {
-  const dir = await ensureDataDir()
-  await ensureBoardsSubdir(dir)
+  const db = getDb()
   const boardId = await resolveActiveBoardId()
-  const filePath = boardDataFilePath(dir, boardId)
-  return withFileLock(filePath, () => writeJsonAtomic(filePath, board))
+  saveBoardData(db, boardId, board)
 }
 
-/** Reads the themes file, auto-seeding the 4 built-in themes on first run. */
-export async function readThemes(): Promise<ThemesData> {
-  const dir = await ensureDataDir()
-  const filePath = join(dir, THEMES_FILE)
-  return withFileLock(filePath, async () => {
-    const existing = await readJson<ThemesData>(filePath)
-    if (existing) return existing
-    const seeded = createDefaultThemes()
-    await writeJsonAtomic(filePath, seeded)
-    return seeded
-  })
-}
-
-/** Overwrites the themes file atomically. Prefer `mutateThemes` for read-modify-write. */
-export async function writeThemes(themes: ThemesData): Promise<void> {
-  const dir = await ensureDataDir()
-  const filePath = join(dir, THEMES_FILE)
-  return withFileLock(filePath, () => writeJsonAtomic(filePath, themes))
-}
-
-/** Runs `mutator` with exclusive access to the active board's data file, persisting the result. */
+/** Runs `mutator` with exclusive access to the active board's data, persisting the result. */
 export async function mutateBoard<T>(
   mutator: (board: BoardData) => T | Promise<T>
 ): Promise<{ result: T; board: BoardData }> {
-  const dir = await ensureDataDir()
-  await ensureBoardsSubdir(dir)
+  const db = getDb()
   const boardId = await resolveActiveBoardId()
-  const filePath = boardDataFilePath(dir, boardId)
-  return withFileLock(filePath, async () => {
-    const existing = (await readJson<BoardData>(filePath)) ?? createDefaultBoard()
-    const result = await mutator(existing)
-    await writeJsonAtomic(filePath, existing)
-    return { result, board: existing }
-  })
+  const existing = loadBoardData(db, boardId) ?? createDefaultBoard()
+  const result = await mutator(existing)
+  const persist = db.transaction(() => saveBoardData(db, boardId, existing))
+  persist()
+  return { result, board: existing }
 }
 
-/** Runs `mutator` with exclusive access to the themes file, persisting the result. */
+// ---------------------------------------------------------------------------
+// Themes
+// ---------------------------------------------------------------------------
+
+function loadThemesRow(db: Database.Database): ThemesData | undefined {
+  const row = db.prepare('SELECT data FROM themes WHERE id = ?').get(THEMES_ROW_ID) as
+    | { data: string }
+    | undefined
+  return row ? (JSON.parse(row.data) as ThemesData) : undefined
+}
+
+function saveThemesRow(db: Database.Database, themes: ThemesData): void {
+  db.prepare(
+    `INSERT INTO themes (id, data) VALUES (${THEMES_ROW_ID}, ?)
+     ON CONFLICT(id) DO UPDATE SET data = excluded.data`
+  ).run(JSON.stringify(themes))
+}
+
+/** Reads the themes row, auto-seeding the 4 built-in themes on first run. */
+export async function readThemes(): Promise<ThemesData> {
+  const db = getDb()
+  const existing = loadThemesRow(db)
+  if (existing) return existing
+  const seeded = createDefaultThemes()
+  saveThemesRow(db, seeded)
+  return seeded
+}
+
+/** Overwrites the themes row. Prefer `mutateThemes` for read-modify-write. */
+export async function writeThemes(themes: ThemesData): Promise<void> {
+  saveThemesRow(getDb(), themes)
+}
+
+/** Runs `mutator` with exclusive access to the themes row, persisting the result. */
 export async function mutateThemes<T>(
   mutator: (themes: ThemesData) => T | Promise<T>
 ): Promise<{ result: T; themes: ThemesData }> {
-  const dir = await ensureDataDir()
-  const filePath = join(dir, THEMES_FILE)
-  return withFileLock(filePath, async () => {
-    const existing = (await readJson<ThemesData>(filePath)) ?? createDefaultThemes()
-    const result = await mutator(existing)
-    await writeJsonAtomic(filePath, existing)
-    return { result, themes: existing }
-  })
+  const db = getDb()
+  const existing = loadThemesRow(db) ?? createDefaultThemes()
+  const result = await mutator(existing)
+  const persist = db.transaction(() => saveThemesRow(db, existing))
+  persist()
+  return { result, themes: existing }
 }
