@@ -105,6 +105,11 @@ function onColorSelect(color: string) {
   if (!props.taskId) return
   void store.updateTask(props.taskId, { color }).catch(() => {})
 }
+function onLaneSelect(e: Event) {
+  if (!props.taskId) return
+  const laneId = (e.target as HTMLSelectElement).value
+  void store.updateTask(props.taskId, { laneId }).catch(() => {})
+}
 function onRangeChange() {
   if (!props.taskId) return
   const yearDiff = endYearDraft.value - startYearDraft.value
@@ -152,6 +157,13 @@ function onKeydown(e: KeyboardEvent) {
         <div class="field">
           <label>Color</label>
           <ColorSwatches :palette="palette" :selected="task.color" @select="onColorSelect" />
+        </div>
+
+        <div class="field">
+          <label for="panel-lane">Lane</label>
+          <select id="panel-lane" :value="task.laneId" @change="onLaneSelect">
+            <option v-for="l in store.sortedLanes" :key="l.id" :value="l.id">{{ l.name }}</option>
+          </select>
         </div>
 
         <div class="field">
@@ -294,7 +306,8 @@ function onKeydown(e: KeyboardEvent) {
 }
 .field textarea,
 .field input[type='text'],
-.field input[type='url'] {
+.field input[type='url'],
+.field select {
   width: 100%;
   font-family: 'Inter', sans-serif;
   font-size: 13.5px;
@@ -306,7 +319,8 @@ function onKeydown(e: KeyboardEvent) {
   resize: vertical;
 }
 .field textarea:focus,
-.field input:focus {
+.field input:focus,
+.field select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(223, 148, 56, 0.18);
