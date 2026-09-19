@@ -27,11 +27,27 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+/** How finely a task's start/end can be dragged, expressed as a fraction of
+ *  a month. 4 means the smallest step is 1 week (1 month == 4 weeks). */
+export const WEEKS_PER_MONTH = 4
+const STEP_MONTHS = 1 / WEEKS_PER_MONTH
+const MONTHS_IN_WINDOW = 12
+// Mirrors the original hardcoded `11` upper bound (MONTHS_IN_WINDOW - 1 when
+// the step was a whole month), generalized to whatever the step size is.
+const MAX_END_MONTH = MONTHS_IN_WINDOW - STEP_MONTHS
+
+// Snaps a months-value back onto the week grid to avoid floating-point drift
+// accumulating over repeated drags (e.g. 0.1 + 0.2-style rounding error).
+function snapToStep(months: number): number {
+  return Math.round(months * WEEKS_PER_MONTH) / WEEKS_PER_MONTH
+}
+
 /**
  * Given the drag's starting state and the current pointer delta (in pixels),
  * computes the proposed new [start, end, row] for a task, clamped to the
- * 0-11 month grid and the available lane rows, plus whether that position
- * is valid (i.e. doesn't overlap another task), as reported by `isOverlapping`.
+ * 0-11 month grid (in week-sized steps) and the available lane rows, plus
+ * whether that position is valid (i.e. doesn't overlap another task), as
+ * reported by `isOverlapping`.
  */
 export function computeDragResult(
   startState: DragStartState,
@@ -40,24 +56,26 @@ export function computeDragResult(
   geometry: DragGeometry,
   isOverlapping: (row: number, start: number, end: number) => boolean
 ): DragResult {
-  const dMonths = geometry.monthWidth > 0 ? Math.round(dx / geometry.monthWidth) : 0
+  const weekWidth = geometry.monthWidth / WEEKS_PER_MONTH
+  const dWeeks = weekWidth > 0 ? Math.round(dx / weekWidth) : 0
+  const dMonths = dWeeks * STEP_MONTHS
   const dRows = geometry.laneHeight > 0 ? Math.round(dy / geometry.laneHeight) : 0
-  const duration = startState.origEnd - startState.origStart
+  const duration = snapToStep(startState.origEnd - startState.origStart)
 
   let start = startState.origStart
   let end = startState.origEnd
   let row = startState.origRow
 
   if (startState.mode === 'move') {
-    start = clamp(startState.origStart + dMonths, 0, 11 - duration)
-    end = start + duration
+    start = snapToStep(clamp(startState.origStart + dMonths, 0, MAX_END_MONTH - duration))
+    end = snapToStep(start + duration)
     row = clamp(startState.origRow + dRows, 0, Math.max(0, geometry.laneCount - 1))
   } else if (startState.mode === 'resize-left') {
-    start = clamp(startState.origStart + dMonths, 0, startState.origEnd)
+    start = snapToStep(clamp(startState.origStart + dMonths, 0, startState.origEnd))
     end = startState.origEnd
   } else if (startState.mode === 'resize-right') {
     start = startState.origStart
-    end = clamp(startState.origEnd + dMonths, startState.origStart, 11)
+    end = snapToStep(clamp(startState.origEnd + dMonths, startState.origStart, MAX_END_MONTH))
   }
 
   const valid = !isOverlapping(row, start, end)
