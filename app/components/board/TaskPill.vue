@@ -36,6 +36,7 @@ const style = computed(() => ({
     role="button"
     tabindex="0"
     :aria-label="`${task.name} task${clippedLeft ? ' (continues from previous year)' : ''}${clippedRight ? ' (continues into next year)' : ''}`"
+    :aria-describedby="task.description ? `task-desc-${task.id}` : undefined"
     @pointerdown="emit('pointerdown-move', $event)"
   >
     <span v-if="clippedLeft" class="task-continuation left" aria-hidden="true">‹</span>
@@ -70,6 +71,9 @@ const style = computed(() => ({
       @pointerdown.stop="emit('pointerdown-resize-right', $event)"
     />
     <span v-if="clippedRight" class="task-continuation right" aria-hidden="true">›</span>
+    <div v-if="task.description" :id="`task-desc-${task.id}`" class="task-tooltip" role="tooltip">
+      {{ task.description }}
+    </div>
   </div>
 </template>
 
@@ -160,5 +164,46 @@ const style = computed(() => ({
   height: 16px;
   background: rgba(255, 255, 255, 0.55);
   border-radius: 2px;
+}
+.task-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 260px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease 0.15s, visibility 0.12s ease 0.15s;
+  pointer-events: none;
+  z-index: 20;
+}
+.task-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+.task:hover .task-tooltip,
+.task:focus-within .task-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+.task.dragging .task-tooltip {
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 </style>
