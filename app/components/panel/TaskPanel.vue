@@ -23,9 +23,13 @@ const isOpen = computed(() => !!task.value)
 const rangeLabel = computed(() => {
   const t = task.value
   if (!t) return ''
-  const endMonth = t.end > 11 ? t.end - 12 : t.end
-  const endYear = t.end > 11 ? t.year + 1 : t.year
-  const startLabel = `${MONTHS[t.start]} ${t.year}`
+  // t.start/t.end can now be fractional (e.g. 2.25 = month 2, week 2) since
+  // dragging snaps to week steps; floor to the whole month for display here.
+  const startMonth = Math.floor(t.start)
+  const endMonthFloor = Math.round(t.end + 0.25)
+  const endMonth = endMonthFloor > 11 ? endMonthFloor - 12 : endMonthFloor
+  const endYear = endMonthFloor > 11 ? t.year + 1 : t.year
+  const startLabel = `${MONTHS[startMonth]} ${t.year}`
   const endLabel = endYear === t.year ? MONTHS[endMonth] : `${MONTHS[endMonth]} ${endYear}`
   return `${startLabel} – ${endLabel}`
 })
@@ -56,10 +60,15 @@ watch(
     linkError.value = ''
     rangeError.value = ''
     if (t) {
-      startMonthDraft.value = t.start
+      // Floor to the whole month for these month-only <select> drafts. This
+      // only affects what's preselected in the UI — the task's actual
+      // (possibly week-fractional) start/end in the store is untouched
+      // unless the user changes the range via these controls.
+      startMonthDraft.value = Math.floor(t.start)
       startYearDraft.value = t.year
-      endMonthDraft.value = t.end > 11 ? t.end - 12 : t.end
-      endYearDraft.value = t.end > 11 ? t.year + 1 : t.year
+      const endMonthFloor = Math.round(t.end + 0.25)
+      endMonthDraft.value = endMonthFloor > 11 ? endMonthFloor - 12 : endMonthFloor
+      endYearDraft.value = endMonthFloor > 11 ? t.year + 1 : t.year
     }
   },
   { immediate: true }
