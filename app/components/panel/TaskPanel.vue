@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useBoardStore } from '../../stores/board'
 import { useTheme } from '../../composables/useTheme'
 
@@ -45,6 +45,8 @@ const startYearDraft = ref(new Date().getFullYear())
 const endMonthDraft = ref(0)
 const endYearDraft = ref(new Date().getFullYear())
 const rangeError = ref('')
+const showDeleteConfirm = ref(false)
+const cancelBtnRef = ref<HTMLButtonElement | null>(null)
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 let pendingPatch: Record<string, unknown> = {}
@@ -54,6 +56,7 @@ watch(
   (t) => {
     clearTimeout(debounceTimer)
     pendingPatch = {}
+    showDeleteConfirm.value = false
     nameDraft.value = t?.name ?? ''
     descDraft.value = t?.description ?? ''
     linkDraft.value = t?.link ?? ''
@@ -127,8 +130,16 @@ function onRangeChange() {
     .updateTask(props.taskId, { year: startYearDraft.value, start: startMonthDraft.value, end })
     .catch(() => {})
 }
-async function onDelete() {
+function onDeleteClick() {
+  showDeleteConfirm.value = true
+  nextTick(() => cancelBtnRef.value?.focus())
+}
+function cancelDelete() {
+  showDeleteConfirm.value = false
+}
+async function confirmDelete() {
   if (!props.taskId) return
+  showDeleteConfirm.value = false
   await store.removeTask(props.taskId)
   emit('close')
 }
@@ -137,7 +148,12 @@ function onClose() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') emit('close')
+  if (e.key !== 'Escape') return
+  if (showDeleteConfirm.value) {
+    showDeleteConfirm.value = false
+    return
+  }
+  emit('close')
 }
 </script>
 
@@ -218,10 +234,27 @@ function onKeydown(e: KeyboardEvent) {
         </div>
 
         <div class="panel-footer">
-          <button class="btn-delete" @click="onDelete">Delete task</button>
+          <button class="btn-delete" @click="onDeleteClick">Delete task</button>
         </div>
       </template>
     </aside>
+
+    <div class="confirm-backdrop" :class="{ open: showDeleteConfirm }" @click="cancelDelete" />
+    <div
+      class="confirm-dialog"
+      :class="{ open: showDeleteConfirm }"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="confirm-delete-title"
+      @keydown.stop
+    >
+      <h2 id="confirm-delete-title">Delete this task?</h2>
+      <p>“{{ task?.name || 'Untitled task' }}” will be permanently deleted. This can’t be undone.</p>
+      <div class="confirm-actions">
+        <button ref="cancelBtnRef" type="button" class="btn-secondary" @click="cancelDelete">Cancel</button>
+        <button type="button" class="btn-delete" @click="confirmDelete">Delete task</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -372,5 +405,80 @@ function onKeydown(e: KeyboardEvent) {
 .btn-delete:hover {
   background: #b34a3c;
   color: #fff;
+}
+.btn-secondary {
+  background: none;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: 'Space Grotesk', sans-serif;
+}
+.btn-secondary:hover {
+  border-color: var(--ink-soft);
+  background: var(--paper-alt);
+}
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 26, 18, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease,
+    visibility 0.16s ease;
+  z-index: 30;
+}
+.confirm-backdrop.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+.confirm-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.96);
+  width: 320px;
+  max-width: 88vw;
+  background: var(--panel-bg);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    visibility 0.16s ease;
+  z-index: 31;
+}
+.confirm-dialog.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.confirm-dialog p {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>
