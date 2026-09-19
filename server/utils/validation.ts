@@ -3,10 +3,10 @@ import { z } from 'zod'
 const hexColor = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 const looksLikeUrl = /^(https?:\/\/|\/|#)[^\s]*$/i
 
-const monthIndex = z.number().int().min(0).max(11)
+const monthIndex = z.number().min(0).max(11)
 // A task's `end` may spill into the following year (12-23 = Jan-Dec of year+1),
 // allowing a task to span exactly one year boundary.
-const endMonthIndex = z.number().int().min(0).max(23)
+const endMonthIndex = z.number().min(0).max(23)
 const linkField = z
   .string()
   .max(2000)
