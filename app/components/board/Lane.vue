@@ -129,13 +129,24 @@ function onBlur() {
 .lane-track {
   position: relative;
   height: 64px;
-  background-image: repeating-linear-gradient(
-    to right,
-    var(--line) 0,
-    var(--line) 1px,
-    transparent 1px,
-    transparent calc(100% / 12)
-  );
+  /* Month lines on top (full --line color), week lines layered beneath at
+     4x the frequency (1 month = 4 weeks) and faded via color-mix so they
+     read as a subtle sub-grid rather than competing with the month lines. */
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--line) 0,
+      var(--line) 1px,
+      transparent 1px,
+      transparent calc(100% / 12)
+    ),
+    repeating-linear-gradient(
+      to right,
+      color-mix(in srgb, var(--line) 40%, transparent) 0,
+      color-mix(in srgb, var(--line) 40%, transparent) 1px,
+      transparent 1px,
+      transparent calc(100% / 48)
+    );
   border-bottom: 1px solid var(--line);
 }
 .lane.even .lane-track {
