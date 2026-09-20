@@ -240,6 +240,7 @@ async function addLane() {
 .board-wrap {
   padding: 22px 24px 60px;
   overflow-x: auto;
+  background-color: var(--paper);
 }
 .board {
   min-width: 1000px;
