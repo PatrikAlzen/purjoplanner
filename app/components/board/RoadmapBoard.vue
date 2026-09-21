@@ -184,8 +184,66 @@ async function renameLane(laneId: string, name: string) {
 async function removeLane(laneId: string) {
   await store.removeLane(laneId)
 }
-async function addLane() {
-  await store.addLane()
+async function addLane(groupId: string) {
+  await store.addLane(groupId)
+}
+
+// --- Group management ------------------------------------------------------
+async function renameGroup(groupId: string, name: string) {
+  await store.renameGroup(groupId, name)
+}
+async function removeGroup(groupId: string) {
+  await store.removeGroup(groupId)
+}
+async function addGroup() {
+  await store.addGroup()
+}
+
+// --- Lane drag-and-drop (moving a lane within/between groups) --------------
+const draggingLaneId = ref<string | null>(null)
+
+function onLaneDragStart(laneId: string) {
+  draggingLaneId.value = laneId
+}
+function onLaneDragEnd() {
+  draggingLaneId.value = null
+}
+
+// Returns an order value that sorts between `before` and `after` (either end
+// may be omitted for "at the start"/"at the end"), so only the moved lane's
+// row needs to be persisted.
+function orderBetween(before: number | undefined, after: number | undefined): number {
+  if (before === undefined && after === undefined) return 0
+  if (before === undefined) return after! - 1
+  if (after === undefined) return before + 1
+  return (before + after) / 2
+}
+
+// Dropped directly on a lane row: insert immediately before/after it.
+function onLaneDrop(groupId: string, targetLaneId: string, payload: { draggedId: string; position: 'before' | 'after' }) {
+  // Cleared here rather than left to the dragged lane's native `dragend`:
+  // moving a lane across groups unmounts its old DOM node (it's re-parented
+  // into a different Group's v-for) before `dragend` can fire on it, which
+  // would otherwise leave it stuck showing as "dragging" forever.
+  draggingLaneId.value = null
+  if (payload.draggedId === targetLaneId) return
+  const lanes = store.lanesForGroup(groupId).filter((l) => l.id !== payload.draggedId)
+  const idx = lanes.findIndex((l) => l.id === targetLaneId)
+  if (idx === -1) return
+  const order =
+    payload.position === 'before'
+      ? orderBetween(lanes[idx - 1]?.order, lanes[idx]!.order)
+      : orderBetween(lanes[idx]!.order, lanes[idx + 1]?.order)
+  void store.moveLane(payload.draggedId, groupId, order).catch(() => {})
+}
+
+// Dropped on a group's empty background (not on a specific lane): append to
+// the end of that group.
+function onGroupDrop(groupId: string, payload: { draggedId: string }) {
+  draggingLaneId.value = null
+  const lanes = store.lanesForGroup(groupId).filter((l) => l.id !== payload.draggedId)
+  const order = orderBetween(lanes[lanes.length - 1]?.order, undefined)
+  void store.moveLane(payload.draggedId, groupId, order).catch(() => {})
 }
 </script>
 
@@ -194,43 +252,66 @@ async function addLane() {
     <div ref="boardEl" class="board">
       <MonthHeader :anchor-month="anchorMonth" />
 
-    <div v-if="laneRows.length === 0" class="empty-state">
-      <p>No lanes yet. Add your first lane to start planning tasks.</p>
-      <button class="add-lane-btn" @click="addLane">+ Add lane</button>
+    <div v-if="store.sortedGroups.length === 0" class="empty-state">
+      <p>No groups yet. Add your first group to start planning tasks.</p>
+      <button class="add-lane-btn" @click="addGroup">+ Add group</button>
     </div>
 
     <template v-else>
-      <Lane
-        v-for="(lane, rowIndex) in laneRows"
-        :key="lane.id"
-        :name="lane.name"
-        :can-remove="!store.laneHasTasks(lane.id)"
-        :even="rowIndex % 2 === 1"
-        @rename="(name) => renameLane(lane.id, name)"
-        @remove="() => removeLane(lane.id)"
+      <Group
+        v-for="group in store.sortedGroups"
+        :key="group.id"
+        :name="group.name"
+        :can-remove="!store.groupHasLanes(group.id)"
+        @rename="(name) => renameGroup(group.id, name)"
+        @remove="() => removeGroup(group.id)"
+        @drop-lane="(payload) => onGroupDrop(group.id, payload)"
       >
-        <TodayMarker v-if="rowIndex === 0" :anchor-month="anchorMonth" :lane-count="laneRows.length" :month-width="monthWidth" />
-        <TaskPill
-          v-for="task in tasksForRow(rowIndex)"
-          :key="task.id"
-          :task="displayTask(task)"
-          :month-width="monthWidth"
-          :invalid="invalidTaskId === task.id"
-          :dragging="draggingTaskId === task.id"
-          :clipped-left="!!taskViewSpan(task, anchorMonth)?.clippedLeft"
-          :clipped-right="!!taskViewSpan(task, anchorMonth)?.clippedRight"
-          @pointerdown-move="(e) => startDrag(e, task, 'move')"
-          @pointerdown-resize-left="(e) => startDrag(e, task, 'resize-left')"
-          @pointerdown-resize-right="(e) => startDrag(e, task, 'resize-right')"
-        />
-      </Lane>
+        <Lane
+          v-for="lane in store.lanesForGroup(group.id)"
+          :key="lane.id"
+          :lane-id="lane.id"
+          :name="lane.name"
+          :can-remove="!store.laneHasTasks(lane.id)"
+          :even="rowIndexForLane(lane.id) % 2 === 1"
+          :dragging="draggingLaneId === lane.id"
+          @rename="(name) => renameLane(lane.id, name)"
+          @remove="() => removeLane(lane.id)"
+          @lane-drag-start="onLaneDragStart(lane.id)"
+          @lane-drag-end="onLaneDragEnd"
+          @lane-drop="(payload) => onLaneDrop(group.id, lane.id, payload)"
+        >
+          <TodayMarker
+            v-if="rowIndexForLane(lane.id) === 0"
+            :anchor-month="anchorMonth"
+            :lane-count="laneRows.length"
+            :month-width="monthWidth"
+            :group-count="store.sortedGroups.length"
+          />
+          <TaskPill
+            v-for="task in tasksForRow(rowIndexForLane(lane.id))"
+            :key="task.id"
+            :task="displayTask(task)"
+            :month-width="monthWidth"
+            :invalid="invalidTaskId === task.id"
+            :dragging="draggingTaskId === task.id"
+            :clipped-left="!!taskViewSpan(task, anchorMonth)?.clippedLeft"
+            :clipped-right="!!taskViewSpan(task, anchorMonth)?.clippedRight"
+            @pointerdown-move="(e) => startDrag(e, task, 'move')"
+            @pointerdown-resize-left="(e) => startDrag(e, task, 'resize-left')"
+            @pointerdown-resize-right="(e) => startDrag(e, task, 'resize-right')"
+          />
+        </Lane>
 
-      <div class="row-shell add-lane-row">
-        <div class="label-col" />
-        <div class="track-col">
-          <button class="add-lane-btn" @click="addLane">+ Add lane</button>
+        <div class="row-shell add-lane-row">
+          <div class="label-col" />
+          <div class="track-col">
+            <button class="add-lane-btn" @click="addLane(group.id)">+ Add lane</button>
+          </div>
         </div>
-      </div>
+      </Group>
+
+      <button class="add-group-btn" @click="addGroup">+ Add group</button>
     </template>
   </div>
 </div>
@@ -279,6 +360,22 @@ async function addLane() {
   font-family: 'Space Grotesk', sans-serif;
 }
 .add-lane-btn:hover {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+.add-group-btn {
+  display: block;
+  margin: 14px 0 0 150px;
+  background: none;
+  border: 1px dashed var(--line-strong);
+  color: var(--ink-soft);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  font-family: 'Space Grotesk', sans-serif;
+}
+.add-group-btn:hover {
   border-color: var(--ink-soft);
   color: var(--ink);
 }

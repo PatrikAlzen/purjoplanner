@@ -16,7 +16,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div :style="themeStyleVars">
+  <div class="app-root" :style="themeStyleVars">
     <NuxtRouteAnnouncer />
     <NuxtPage />
     <ToastStack />

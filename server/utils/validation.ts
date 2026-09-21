@@ -43,14 +43,29 @@ export const taskUpdateSchema = z
     path: ['end']
   })
 
+export const groupCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  order: z.number().optional()
+})
+
+export const groupUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  order: z.number().optional()
+})
+
+// `order` is a plain (possibly fractional) number rather than an integer:
+// dragging a lane between two others assigns it the midpoint of their
+// orders, so only the moved lane needs to be persisted.
 export const laneCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  order: z.number().int().optional()
+  groupId: z.string().min(1),
+  order: z.number().optional()
 })
 
 export const laneUpdateSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
-  order: z.number().int().optional()
+  groupId: z.string().min(1).optional(),
+  order: z.number().optional()
 })
 
 export const themeColorsSchema = z.object({

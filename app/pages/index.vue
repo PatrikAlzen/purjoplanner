@@ -41,7 +41,11 @@ async function addNewTask() {
       }
     }
     if (!laneId) {
-      const lane = await store.addLane()
+      let groupId = store.sortedGroups[0]?.id
+      if (!groupId) {
+        groupId = (await store.addGroup()).id
+      }
+      const lane = await store.addLane(groupId)
       laneId = lane.id
     }
     const color = DEFAULT_PALETTE[store.tasks.length % DEFAULT_PALETTE.length]

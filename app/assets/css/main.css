@@ -2,7 +2,7 @@
 
 :root {
   /* Fallback palette; overridden per-theme via inline CSS custom properties
-     applied at the app root (see useTheme.ts / ThemeRoot in app.vue). */
+     applied at the app root (see useTheme.ts / .app-root in app.vue). */
   --paper: #eaece4;
   --paper-alt: #e1e4d9;
   --line: #c7cdbe;
@@ -34,6 +34,17 @@ body {
   color: var(--ink);
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The active theme's colors are applied as inline CSS custom properties on
+   this element (see useTheme.ts), not on `body`/`html` — so it needs its
+   own background/min-height, otherwise `body`'s background above only ever
+   resolves the :root fallback (custom properties don't cascade upward) and
+   shows through below the board on short pages. */
+.app-root {
+  min-height: 100%;
+  background: var(--paper);
+  color: var(--ink);
 }
 
 h1,

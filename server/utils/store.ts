@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { Board, BoardData, BoardsIndex, ThemesData } from '../../shared/types'
+import type { Board, BoardData, BoardsIndex, Group, ThemesData } from '../../shared/types'
 
 /**
  * Resolves the directory used to store the SQLite database file (and, for
@@ -439,16 +439,42 @@ export function createDefaultThemes(): ThemesData {
 }
 
 export function createDefaultBoard(): BoardData {
+  const groupId = randomUUID()
   return {
     version: 1,
+    groups: [{ id: groupId, name: 'Group 1', order: 0 }],
     lanes: [
-      { id: randomUUID(), name: 'Lane 1', order: 0 },
-      { id: randomUUID(), name: 'Lane 2', order: 1 },
-      { id: randomUUID(), name: 'Lane 3', order: 2 }
+      { id: randomUUID(), name: 'Lane 1', order: 0, groupId },
+      { id: randomUUID(), name: 'Lane 2', order: 1, groupId },
+      { id: randomUUID(), name: 'Lane 3', order: 2, groupId }
     ],
     tasks: [],
     activeThemeId: DEFAULT_THEME_ID
   }
+}
+
+/**
+ * Boards written before groups existed (or restored from a legacy JSON
+ * export) have no `groups` array and lanes with no `groupId`. Backfills a
+ * single default group and assigns any group-less/orphaned lane to it,
+ * returning `changed: true` so the caller can persist the backfill once.
+ */
+function migrateBoardData(raw: BoardData): { data: BoardData; changed: boolean } {
+  let groups: Group[] = raw.groups
+  let changed = false
+  if (!groups || groups.length === 0) {
+    groups = [{ id: randomUUID(), name: 'Group 1', order: 0 }]
+    changed = true
+  }
+  const validGroupIds = new Set(groups.map((g) => g.id))
+  const fallbackGroupId = [...groups].sort((a, b) => a.order - b.order)[0]!.id
+  const lanes = raw.lanes.map((lane) => {
+    if (lane.groupId && validGroupIds.has(lane.groupId)) return lane
+    changed = true
+    return { ...lane, groupId: fallbackGroupId }
+  })
+  if (!changed) return { data: raw, changed: false }
+  return { data: { ...raw, groups, lanes }, changed: true }
 }
 
 function createBoardMeta(id: string, name: string): Board {
@@ -718,7 +744,11 @@ function loadBoardData(db: Database.Database, boardId: string): BoardData | unde
   const row = db.prepare('SELECT data FROM board_data WHERE boardId = ?').get(boardId) as
     | { data: string }
     | undefined
-  return row ? (JSON.parse(row.data) as BoardData) : undefined
+  if (!row) return undefined
+  const raw = JSON.parse(row.data) as BoardData
+  const { data, changed } = migrateBoardData(raw)
+  if (changed) saveBoardData(db, boardId, data)
+  return data
 }
 
 function saveBoardData(db: Database.Database, boardId: string, data: BoardData): void {

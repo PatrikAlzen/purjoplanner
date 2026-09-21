@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { createError } from 'h3'
-import type { Board, Lane, Task } from '../../shared/types'
+import type { Board, Group, Lane, Task } from '../../shared/types'
 import { findOverlap } from '../../shared/collision'
 import { mutateBoard, readBoard, DEFAULT_THEME_ID, readBoardsIndex, mutateBoardsIndex, createBoardDataFile, deleteBoardDataFile, createEmptyBoard } from './store'
 import { parseWithSchema } from './http'
 import {
+  groupCreateSchema,
+  groupUpdateSchema,
   laneCreateSchema,
   laneUpdateSchema,
   taskCreateSchema,
@@ -80,14 +82,63 @@ export async function setActiveBoard(id: string): Promise<{ activeBoardId: strin
 }
 
 // ---------------------------------------------------------------------------
+// Groups
+// ---------------------------------------------------------------------------
+
+export async function createGroup(input: unknown): Promise<Group> {
+  const parsed = parseWithSchema(groupCreateSchema, input)
+  const { result } = await mutateBoard((board) => {
+    const order = parsed.order ?? board.groups.length
+    const group: Group = { id: randomUUID(), name: parsed.name, order }
+    board.groups.push(group)
+    return group
+  })
+  return result
+}
+
+export async function updateGroup(id: string, input: unknown): Promise<Group> {
+  const parsed = parseWithSchema(groupUpdateSchema, input)
+  const { result } = await mutateBoard((board) => {
+    const group = board.groups.find((g) => g.id === id)
+    if (!group) {
+      throw createError({ statusCode: 404, statusMessage: 'Group not found' })
+    }
+    if (parsed.name !== undefined) group.name = parsed.name
+    if (parsed.order !== undefined) group.order = parsed.order
+    return group
+  })
+  return result
+}
+
+export async function deleteGroup(id: string): Promise<void> {
+  await mutateBoard((board) => {
+    const group = board.groups.find((g) => g.id === id)
+    if (!group) {
+      throw createError({ statusCode: 404, statusMessage: 'Group not found' })
+    }
+    if (board.groups.length <= 1) {
+      throw createError({ statusCode: 409, statusMessage: 'Cannot delete the last remaining group' })
+    }
+    const hasLanes = board.lanes.some((l) => l.groupId === id)
+    if (hasLanes) {
+      throw createError({ statusCode: 409, statusMessage: 'Group still has lanes assigned to it' })
+    }
+    board.groups = board.groups.filter((g) => g.id !== id)
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Lanes
 // ---------------------------------------------------------------------------
 
 export async function createLane(input: unknown): Promise<Lane> {
   const parsed = parseWithSchema(laneCreateSchema, input)
   const { result } = await mutateBoard((board) => {
-    const order = parsed.order ?? board.lanes.length
-    const lane: Lane = { id: randomUUID(), name: parsed.name, order }
+    if (!board.groups.some((g) => g.id === parsed.groupId)) {
+      throw createError({ statusCode: 404, statusMessage: 'Group not found' })
+    }
+    const order = parsed.order ?? board.lanes.filter((l) => l.groupId === parsed.groupId).length
+    const lane: Lane = { id: randomUUID(), name: parsed.name, order, groupId: parsed.groupId }
     board.lanes.push(lane)
     return lane
   })
@@ -101,8 +152,12 @@ export async function updateLane(id: string, input: unknown): Promise<Lane> {
     if (!lane) {
       throw createError({ statusCode: 404, statusMessage: 'Lane not found' })
     }
+    if (parsed.groupId !== undefined && !board.groups.some((g) => g.id === parsed.groupId)) {
+      throw createError({ statusCode: 404, statusMessage: 'Group not found' })
+    }
     if (parsed.name !== undefined) lane.name = parsed.name
     if (parsed.order !== undefined) lane.order = parsed.order
+    if (parsed.groupId !== undefined) lane.groupId = parsed.groupId
     return lane
   })
   return result

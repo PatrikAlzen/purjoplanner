@@ -3,17 +3,61 @@ import { ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
+    laneId: string
     name: string
     canRemove: boolean
     even: boolean
+    dragging?: boolean
   }>(),
-  { even: false }
+  { even: false, dragging: false }
 )
 
 const emit = defineEmits<{
   (e: 'rename', name: string): void
   (e: 'remove'): void
+  (e: 'lane-drag-start'): void
+  (e: 'lane-drag-end'): void
+  (e: 'lane-drop', payload: { draggedId: string; position: 'before' | 'after' }): void
 }>()
+
+// Which half of this row a dragged lane is currently hovering over, used to
+// show an insertion indicator and decide whether it drops before or after
+// this lane.
+const dragOverPosition = ref<'before' | 'after' | null>(null)
+
+function onHandleDragStart(e: DragEvent) {
+  e.dataTransfer?.setData('text/plain', props.laneId)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+  emit('lane-drag-start')
+}
+
+function onHandleDragEnd() {
+  emit('lane-drag-end')
+}
+
+function positionFor(e: DragEvent): 'before' | 'after' {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+  dragOverPosition.value = positionFor(e)
+}
+
+function onDragLeave() {
+  dragOverPosition.value = null
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  const position = positionFor(e)
+  dragOverPosition.value = null
+  const draggedId = e.dataTransfer?.getData('text/plain')
+  if (!draggedId || draggedId === props.laneId) return
+  emit('lane-drop', { draggedId, position })
+}
 
 // Local draft so the input can be freely cleared while typing without
 // immediately round-tripping an invalid (empty) name to the server on every
@@ -47,8 +91,28 @@ function onBlur() {
 </script>
 
 <template>
-  <div class="lane" :class="{ even }">
+  <div
+    class="lane"
+    :class="{
+      even,
+      dragging,
+      'drag-over-before': dragOverPosition === 'before',
+      'drag-over-after': dragOverPosition === 'after'
+    }"
+    @dragover="onDragOver"
+    @dragleave="onDragLeave"
+    @drop="onDrop"
+  >
     <div class="label-col lane-label">
+      <span
+        class="lane-handle"
+        draggable="true"
+        title="Drag to move lane"
+        aria-label="Drag to move lane"
+        @dragstart="onHandleDragStart"
+        @dragend="onHandleDragEnd"
+        >⠿</span
+      >
       <input v-model="draft" placeholder="Lane name" @input="onInput" @blur="onBlur" />
       <button
         v-if="canRemove"
@@ -71,6 +135,41 @@ function onBlur() {
   display: flex;
   align-items: stretch;
   background: var(--paper);
+  position: relative;
+}
+.lane.dragging {
+  opacity: 0.4;
+}
+.lane.drag-over-before::before,
+.lane.drag-over-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 4;
+}
+.lane.drag-over-before::before {
+  top: 0;
+}
+.lane.drag-over-after::after {
+  bottom: 0;
+}
+.lane-handle {
+  cursor: grab;
+  color: var(--line-strong);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 4px 0 0;
+  visibility: hidden;
+  user-select: none;
+}
+.lane:hover .lane-handle {
+  visibility: visible;
+}
+.lane-handle:active {
+  cursor: grabbing;
 }
 .label-col {
   width: 150px;

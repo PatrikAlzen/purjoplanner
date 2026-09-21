@@ -61,7 +61,8 @@ describe('boards API', () => {
     const boardB = await $fetch('/api/boards', { method: 'POST', body: { name: 'Board B' } })
 
     // Add a lane while board A is active.
-    await $fetch('/api/lanes', { method: 'POST', body: { name: 'Lane on A' } })
+    const boardABefore = await $fetch('/api/board')
+    await $fetch('/api/lanes', { method: 'POST', body: { name: 'Lane on A', groupId: boardABefore.groups[0].id } })
 
     await $fetch('/api/boards/active', { method: 'POST', body: { boardId: boardB.id } })
     const boardBData = await $fetch('/api/board')

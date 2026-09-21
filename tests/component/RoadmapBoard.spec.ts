@@ -3,21 +3,23 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import RoadmapBoard from '../../app/components/board/RoadmapBoard.vue'
 import MonthHeader from '../../app/components/board/MonthHeader.vue'
+import Group from '../../app/components/board/Group.vue'
 import Lane from '../../app/components/board/Lane.vue'
 import TaskPill from '../../app/components/board/TaskPill.vue'
 import TodayMarker from '../../app/components/board/TodayMarker.vue'
 import { useBoardStore } from '../../app/stores/board'
 
-const globalComponents = { MonthHeader, Lane, TaskPill, TodayMarker }
+const globalComponents = { MonthHeader, Group, Lane, TaskPill, TodayMarker }
 
 // January 2026, expressed as an absolute month index (year * 12 + month).
 const ANCHOR_2026 = 2026 * 12
 
 function seedStore() {
   const store = useBoardStore()
+  store.groups = [{ id: 'g1', name: 'Group 1', order: 0 }]
   store.lanes = [
-    { id: 'l1', name: 'Lane 1', order: 0 },
-    { id: 'l2', name: 'Lane 2', order: 1 }
+    { id: 'l1', name: 'Lane 1', order: 0, groupId: 'g1' },
+    { id: 'l2', name: 'Lane 2', order: 1, groupId: 'g1' }
   ]
   store.tasks = [
     {

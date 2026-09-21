@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import type {
   BoardData,
+  Group,
+  GroupCreateInput,
   Lane,
   LaneCreateInput,
   LaneUpdateInput,
@@ -19,6 +21,7 @@ function currentAbsoluteMonth(): number {
 
 export const useBoardStore = defineStore('board', {
   state: () => ({
+    groups: [] as Group[],
     lanes: [] as Lane[],
     tasks: [] as Task[],
     activeThemeId: 'slate-amber',
@@ -30,7 +33,27 @@ export const useBoardStore = defineStore('board', {
   }),
 
   getters: {
-    sortedLanes: (state): Lane[] => [...state.lanes].sort((a, b) => a.order - b.order),
+    sortedGroups: (state): Group[] => [...state.groups].sort((a, b) => a.order - b.order),
+    // Lanes ordered by their group's order first, then their own order
+    // within that group — i.e. the flat top-to-bottom display order used
+    // for row indices across the whole board.
+    sortedLanes: (state): Lane[] => {
+      const groupOrder = new Map(state.groups.map((g) => [g.id, g.order]))
+      return [...state.lanes].sort((a, b) => {
+        const ga = groupOrder.get(a.groupId) ?? 0
+        const gb = groupOrder.get(b.groupId) ?? 0
+        if (ga !== gb) return ga - gb
+        return a.order - b.order
+      })
+    },
+    lanesForGroup:
+      (state) =>
+      (groupId: string): Lane[] =>
+        state.lanes.filter((l) => l.groupId === groupId).sort((a, b) => a.order - b.order),
+    groupHasLanes:
+      (state) =>
+      (groupId: string): boolean =>
+        state.lanes.some((l) => l.groupId === groupId),
     tasksForWindow:
       (state) =>
       (anchorMonth: number): Task[] =>
@@ -54,6 +77,7 @@ export const useBoardStore = defineStore('board', {
   actions: {
     async load(): Promise<void> {
       const board = await $fetch<BoardData>('/api/board')
+      this.groups = board.groups
       this.lanes = board.lanes
       this.tasks = board.tasks
       this.activeThemeId = board.activeThemeId
@@ -62,6 +86,49 @@ export const useBoardStore = defineStore('board', {
 
     setAnchorMonth(anchorMonth: number): void {
       this.anchorMonth = anchorMonth
+    },
+
+    // --- Groups ----------------------------------------------------------
+    async createGroup(input: GroupCreateInput): Promise<Group> {
+      try {
+        const group = await $fetch<Group>('/api/groups', { method: 'POST', body: input })
+        this.groups.push(group)
+        return group
+      } catch (err) {
+        useToast().pushError(errorMessage(err), () => void this.createGroup(input))
+        throw err
+      }
+    },
+
+    async renameGroup(id: string, name: string): Promise<void> {
+      const group = this.groups.find((g) => g.id === id)
+      const previousName = group?.name
+      if (group) group.name = name
+      try {
+        await $fetch<Group>(`/api/groups/${id}`, { method: 'PATCH', body: { name } })
+      } catch (err) {
+        if (group && previousName !== undefined) group.name = previousName
+        useToast().pushError(errorMessage(err), () => void this.renameGroup(id, name))
+        throw err
+      }
+    },
+
+    async removeGroup(id: string): Promise<void> {
+      const idx = this.groups.findIndex((g) => g.id === id)
+      if (idx === -1) return
+      const [removed] = this.groups.splice(idx, 1)
+      try {
+        await $fetch(`/api/groups/${id}`, { method: 'DELETE' })
+      } catch (err) {
+        this.groups.splice(idx, 0, removed)
+        useToast().pushError(errorMessage(err), () => void this.removeGroup(id))
+        throw err
+      }
+    },
+
+    async addGroup(): Promise<Group> {
+      const order = this.groups.length
+      return this.createGroup({ name: `Group ${order + 1}`, order })
     },
 
     // --- Lanes -------------------------------------------------------
@@ -102,9 +169,29 @@ export const useBoardStore = defineStore('board', {
       }
     },
 
-    async addLane(): Promise<Lane> {
-      const order = this.lanes.length
-      return this.createLane({ name: `Lane ${order + 1}`, order })
+    async addLane(groupId: string): Promise<Lane> {
+      const lanesInGroup = this.lanes.filter((l) => l.groupId === groupId)
+      const order = lanesInGroup.length ? Math.max(...lanesInGroup.map((l) => l.order)) + 1 : 0
+      return this.createLane({ name: `Lane ${this.lanes.length + 1}`, groupId, order })
+    },
+
+    // Reassigns a lane to `groupId` at position `order` (a plain, possibly
+    // fractional number so it can slot between two existing lanes without
+    // renumbering the rest of the group). Used when dragging a lane between
+    // or within groups.
+    async moveLane(laneId: string, groupId: string, order: number): Promise<void> {
+      const lane = this.lanes.find((l) => l.id === laneId)
+      if (!lane) return
+      const snapshot = { groupId: lane.groupId, order: lane.order }
+      lane.groupId = groupId
+      lane.order = order
+      try {
+        await $fetch<Lane>(`/api/lanes/${laneId}`, { method: 'PATCH', body: { groupId, order } })
+      } catch (err) {
+        Object.assign(lane, snapshot)
+        useToast().pushError(errorMessage(err), () => void this.moveLane(laneId, groupId, order))
+        throw err
+      }
     },
 
     // --- Tasks ---------------------------------------------------------

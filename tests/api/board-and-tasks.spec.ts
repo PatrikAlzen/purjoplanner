@@ -16,13 +16,17 @@ await setup({
 describe('board, lane and task API', () => {
   it('GET /api/board returns a seeded board', async () => {
     const board = await $fetch('/api/board')
+    expect(board.groups.length).toBe(1)
     expect(board.lanes.length).toBe(3)
+    expect(board.lanes.every((l: any) => l.groupId === board.groups[0].id)).toBe(true)
     expect(board.tasks).toEqual([])
     expect(board.activeThemeId).toBe('slate-amber')
   })
 
   it('creates, updates and deletes a lane', async () => {
-    const lane = await $fetch('/api/lanes', { method: 'POST', body: { name: 'QA' } })
+    const board = await $fetch('/api/board')
+    const groupId = board.groups[0].id
+    const lane = await $fetch('/api/lanes', { method: 'POST', body: { name: 'QA', groupId } })
     expect(lane.name).toBe('QA')
 
     const renamed = await $fetch(`/api/lanes/${lane.id}`, {
@@ -32,14 +36,59 @@ describe('board, lane and task API', () => {
     expect(renamed.name).toBe('Quality')
 
     await $fetch(`/api/lanes/${lane.id}`, { method: 'DELETE' })
-    const board = await $fetch('/api/board')
-    expect(board.lanes.find((l: any) => l.id === lane.id)).toBeUndefined()
+    const boardAfter = await $fetch('/api/board')
+    expect(boardAfter.lanes.find((l: any) => l.id === lane.id)).toBeUndefined()
   })
 
   it('rejects lane creation with an empty name (400)', async () => {
+    const board = await $fetch('/api/board')
     await expect(
-      $fetch('/api/lanes', { method: 'POST', body: { name: '' } })
+      $fetch('/api/lanes', { method: 'POST', body: { name: '', groupId: board.groups[0].id } })
     ).rejects.toMatchObject({ response: { status: 400 } })
+  })
+
+  it('rejects lane creation with a missing groupId (400)', async () => {
+    await expect(
+      $fetch('/api/lanes', { method: 'POST', body: { name: 'No group' } })
+    ).rejects.toMatchObject({ response: { status: 400 } })
+  })
+
+  it('moves a lane to a different group by patching groupId', async () => {
+    const board = await $fetch('/api/board')
+    const originalGroupId = board.groups[0].id
+    const newGroup = await $fetch('/api/groups', { method: 'POST', body: { name: 'New group' } })
+    const lane = await $fetch('/api/lanes', {
+      method: 'POST',
+      body: { name: 'Movable', groupId: originalGroupId }
+    })
+
+    const moved = await $fetch(`/api/lanes/${lane.id}`, {
+      method: 'PATCH',
+      body: { groupId: newGroup.id, order: 0.5 }
+    })
+    expect(moved.groupId).toBe(newGroup.id)
+    expect(moved.order).toBe(0.5)
+  })
+
+  it('creates, renames and deletes a group, and blocks deleting a non-empty one', async () => {
+    const group = await $fetch('/api/groups', { method: 'POST', body: { name: 'QA group' } })
+    expect(group.name).toBe('QA group')
+
+    const renamed = await $fetch(`/api/groups/${group.id}`, {
+      method: 'PATCH',
+      body: { name: 'Quality group' }
+    })
+    expect(renamed.name).toBe('Quality group')
+
+    const lane = await $fetch('/api/lanes', { method: 'POST', body: { name: 'In group', groupId: group.id } })
+    await expect($fetch(`/api/groups/${group.id}`, { method: 'DELETE' })).rejects.toMatchObject({
+      response: { status: 409 }
+    })
+
+    await $fetch(`/api/lanes/${lane.id}`, { method: 'DELETE' })
+    await $fetch(`/api/groups/${group.id}`, { method: 'DELETE' })
+    const board = await $fetch('/api/board')
+    expect(board.groups.find((g: any) => g.id === group.id)).toBeUndefined()
   })
 
   it('creates a task, rejects overlaps, and updates/deletes it', async () => {

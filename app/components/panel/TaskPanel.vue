@@ -178,7 +178,9 @@ function onKeydown(e: KeyboardEvent) {
         <div class="field">
           <label for="panel-lane">Lane</label>
           <select id="panel-lane" :value="task.laneId" @change="onLaneSelect">
-            <option v-for="l in store.sortedLanes" :key="l.id" :value="l.id">{{ l.name }}</option>
+            <optgroup v-for="g in store.sortedGroups" :key="g.id" :label="g.name">
+              <option v-for="l in store.lanesForGroup(g.id)" :key="l.id" :value="l.id">{{ l.name }}</option>
+            </optgroup>
           </select>
         </div>
 

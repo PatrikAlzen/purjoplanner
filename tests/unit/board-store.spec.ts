@@ -10,7 +10,8 @@ describe('board store', () => {
 
   it('loads board data from the API', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
-      lanes: [{ id: 'l1', name: 'Lane 1', order: 0 }],
+      groups: [{ id: 'g1', name: 'Group 1', order: 0 }],
+      lanes: [{ id: 'l1', name: 'Lane 1', order: 0, groupId: 'g1' }],
       tasks: [],
       activeThemeId: 'slate-amber'
     })
@@ -19,6 +20,7 @@ describe('board store', () => {
     const store = useBoardStore()
     await store.load()
 
+    expect(store.groups.length).toBe(1)
     expect(store.lanes.length).toBe(1)
     expect(store.loaded).toBe(true)
     expect(fetchMock).toHaveBeenCalledWith('/api/board')
@@ -74,12 +76,26 @@ describe('board store', () => {
 
   it('rolls back removeLane when the API call fails', async () => {
     const store = useBoardStore()
-    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0 }]
+    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0, groupId: 'g1' }]
     const fetchMock = vi.fn().mockRejectedValue(new Error('conflict'))
     vi.stubGlobal('$fetch', fetchMock)
 
     await expect(store.removeLane('l1')).rejects.toThrow('conflict')
     expect(store.lanes.length).toBe(1)
+  })
+
+  it('rolls back moveLane when the API call fails', async () => {
+    const store = useBoardStore()
+    store.groups = [
+      { id: 'g1', name: 'Group 1', order: 0 },
+      { id: 'g2', name: 'Group 2', order: 1 }
+    ]
+    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0, groupId: 'g1' }]
+    const fetchMock = vi.fn().mockRejectedValue(new Error('nope'))
+    vi.stubGlobal('$fetch', fetchMock)
+
+    await expect(store.moveLane('l1', 'g2', 1)).rejects.toThrow('nope')
+    expect(store.lanes[0]).toMatchObject({ groupId: 'g1', order: 0 })
   })
 
   it('rolls back setActiveTheme when the API call fails', async () => {

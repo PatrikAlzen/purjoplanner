@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  groupCreateSchema,
   laneCreateSchema,
   taskCreateSchema,
   taskUpdateSchema,
@@ -68,11 +69,31 @@ describe('taskUpdateSchema', () => {
 
 describe('laneCreateSchema', () => {
   it('accepts a valid lane', () => {
-    expect(() => laneCreateSchema.parse({ name: 'Lane 1' })).not.toThrow()
+    expect(() => laneCreateSchema.parse({ name: 'Lane 1', groupId: 'group-1' })).not.toThrow()
   })
 
   it('rejects an empty name', () => {
-    expect(() => laneCreateSchema.parse({ name: '' })).toThrow()
+    expect(() => laneCreateSchema.parse({ name: '', groupId: 'group-1' })).toThrow()
+  })
+
+  it('rejects a missing groupId', () => {
+    expect(() => laneCreateSchema.parse({ name: 'Lane 1' })).toThrow()
+  })
+
+  it('accepts a fractional order', () => {
+    expect(() =>
+      laneCreateSchema.parse({ name: 'Lane 1', groupId: 'group-1', order: 1.5 })
+    ).not.toThrow()
+  })
+})
+
+describe('groupCreateSchema', () => {
+  it('accepts a valid group', () => {
+    expect(() => groupCreateSchema.parse({ name: 'Group 1' })).not.toThrow()
+  })
+
+  it('rejects an empty name', () => {
+    expect(() => groupCreateSchema.parse({ name: '' })).toThrow()
   })
 })
 

@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps<{
-  anchorMonth: number
-  laneCount: number
-  monthWidth: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    anchorMonth: number
+    laneCount: number
+    monthWidth: number
+    groupCount?: number
+  }>(),
+  { groupCount: 1 }
+)
 
 const LANE_HEIGHT = 64
+// Must match Group.vue's `.group-header` height: the marker starts at the
+// top of the first lane (below the first group's header, which doesn't
+// count), so only the headers of the groups after it add extra height.
+const GROUP_HEADER_HEIGHT = 36
 
 const fraction = computed<number | null>(() => {
   const today = new Date()
@@ -23,7 +31,10 @@ const fraction = computed<number | null>(() => {
   <div
     v-if="fraction !== null"
     class="today-line"
-    :style="{ left: `${fraction * monthWidth}px`, height: `${laneCount * LANE_HEIGHT}px` }"
+    :style="{
+      left: `${fraction * monthWidth}px`,
+      height: `${laneCount * LANE_HEIGHT + Math.max(0, groupCount - 1) * GROUP_HEADER_HEIGHT}px`
+    }"
     data-testid="today-line"
   >
     <div class="tag">Today</div>

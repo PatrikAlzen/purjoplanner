@@ -48,7 +48,8 @@ describe('TaskPanel', () => {
         updatedAt: ''
       }
     ]
-    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0 }]
+    store.groups = [{ id: 'g1', name: 'Group 1', order: 0 }]
+    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0, groupId: 'g1' }]
     const wrapper = mountPanel('t1')
     expect((wrapper.find('.panel-name').element as HTMLInputElement).value).toBe('Design system v2')
     expect((wrapper.find('#panel-desc').element as HTMLTextAreaElement).value).toBe('A description')
@@ -74,7 +75,8 @@ describe('TaskPanel', () => {
         updatedAt: ''
       }
     ]
-    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0 }]
+    store.groups = [{ id: 'g1', name: 'Group 1', order: 0 }]
+    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0, groupId: 'g1' }]
     const wrapper = mountPanel('t1')
     await wrapper.find('.panel-close').trigger('click')
     expect(wrapper.emitted('close')).toBeTruthy()
@@ -98,7 +100,8 @@ describe('TaskPanel', () => {
         updatedAt: ''
       }
     ]
-    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0 }]
+    store.groups = [{ id: 'g1', name: 'Group 1', order: 0 }]
+    store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0, groupId: 'g1' }]
     const wrapper = mountPanel('t1')
     await wrapper.find('.btn-delete').trigger('click')
     await Promise.resolve()

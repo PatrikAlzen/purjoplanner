@@ -16,10 +16,17 @@ export interface Task {
   updatedAt: string
 }
 
+export interface Group {
+  id: string
+  name: string
+  order: number
+}
+
 export interface Lane {
   id: string
   name: string
   order: number
+  groupId: string
 }
 
 export interface ThemeColors {
@@ -45,6 +52,7 @@ export interface Theme {
 
 export interface BoardData {
   version: 1
+  groups: Group[]
   lanes: Lane[]
   tasks: Task[]
   activeThemeId: string
@@ -79,8 +87,11 @@ export type TaskUpdateInput = Partial<
   Pick<Task, 'name' | 'color' | 'laneId' | 'start' | 'end' | 'year' | 'description' | 'link'>
 >
 
-export type LaneCreateInput = Pick<Lane, 'name'> & Partial<Pick<Lane, 'order'>>
-export type LaneUpdateInput = Partial<Pick<Lane, 'name' | 'order'>>
+export type GroupCreateInput = Pick<Group, 'name'> & Partial<Pick<Group, 'order'>>
+export type GroupUpdateInput = Partial<Pick<Group, 'name' | 'order'>>
+
+export type LaneCreateInput = Pick<Lane, 'name' | 'groupId'> & Partial<Pick<Lane, 'order'>>
+export type LaneUpdateInput = Partial<Pick<Lane, 'name' | 'order' | 'groupId'>>
 
 export type ThemeCreateInput = Pick<Theme, 'name' | 'colors' | 'palette'>
 export type ThemeUpdateInput = Partial<Pick<Theme, 'name' | 'colors' | 'palette'>>
