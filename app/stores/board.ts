@@ -131,6 +131,23 @@ export const useBoardStore = defineStore('board', {
       return this.createGroup({ name: `Group ${order + 1}`, order })
     },
 
+    // Reassigns a group to position `order` (a plain, possibly fractional
+    // number so it can slot between two existing groups without renumbering
+    // the rest). Used when dragging a group card to reorder it.
+    async moveGroup(groupId: string, order: number): Promise<void> {
+      const group = this.groups.find((g) => g.id === groupId)
+      if (!group) return
+      const previousOrder = group.order
+      group.order = order
+      try {
+        await $fetch<Group>(`/api/groups/${groupId}`, { method: 'PATCH', body: { order } })
+      } catch (err) {
+        group.order = previousOrder
+        useToast().pushError(errorMessage(err), () => void this.moveGroup(groupId, order))
+        throw err
+      }
+    },
+
     // --- Lanes -------------------------------------------------------
     async createLane(input: LaneCreateInput): Promise<Lane> {
       try {

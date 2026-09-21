@@ -70,14 +70,14 @@ describe('Lane', () => {
   it('emits lane-drop with the dropped lane id and before/after position', async () => {
     const wrapper = mount(Lane, { props: { laneId: 'l2', name: 'Lane 2', canRemove: true, even: false } })
     wrapper.element.getBoundingClientRect = () => ({ top: 0, height: 100 }) as DOMRect
-    const dataTransfer = { getData: () => 'l1' }
+    const dataTransfer = { getData: () => 'l1', types: ['text/plain'] }
     await wrapper.trigger('drop', { dataTransfer, clientY: 0 })
     expect(wrapper.emitted('lane-drop')?.[0]).toEqual([{ draggedId: 'l1', position: 'before' }])
   })
 
   it('ignores a drop of itself', async () => {
     const wrapper = mount(Lane, { props: { laneId: 'l1', name: 'Lane 1', canRemove: true, even: false } })
-    const dataTransfer = { getData: () => 'l1' }
+    const dataTransfer = { getData: () => 'l1', types: ['text/plain'] }
     await wrapper.trigger('drop', { dataTransfer })
     expect(wrapper.emitted('lane-drop')).toBeFalsy()
   })

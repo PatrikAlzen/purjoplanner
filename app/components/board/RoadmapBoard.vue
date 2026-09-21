@@ -245,6 +245,30 @@ function onGroupDrop(groupId: string, payload: { draggedId: string }) {
   const order = orderBetween(lanes[lanes.length - 1]?.order, undefined)
   void store.moveLane(payload.draggedId, groupId, order).catch(() => {})
 }
+
+// --- Group drag-and-drop (reordering groups) --------------------------------
+const draggingGroupId = ref<string | null>(null)
+
+function onGroupDragStart(groupId: string) {
+  draggingGroupId.value = groupId
+}
+function onGroupDragEnd() {
+  draggingGroupId.value = null
+}
+
+// Dropped on another group's card: insert immediately before/after it.
+function onGroupReorder(targetGroupId: string, payload: { draggedId: string; position: 'before' | 'after' }) {
+  draggingGroupId.value = null
+  if (payload.draggedId === targetGroupId) return
+  const groups = store.sortedGroups.filter((g) => g.id !== payload.draggedId)
+  const idx = groups.findIndex((g) => g.id === targetGroupId)
+  if (idx === -1) return
+  const order =
+    payload.position === 'before'
+      ? orderBetween(groups[idx - 1]?.order, groups[idx]!.order)
+      : orderBetween(groups[idx]!.order, groups[idx + 1]?.order)
+  void store.moveGroup(payload.draggedId, order).catch(() => {})
+}
 </script>
 
 <template>
@@ -261,12 +285,17 @@ function onGroupDrop(groupId: string, payload: { draggedId: string }) {
       <Group
         v-for="group in store.sortedGroups"
         :key="group.id"
+        :group-id="group.id"
         :name="group.name"
         :can-remove="!store.groupHasLanes(group.id)"
         :lane-count="store.lanesForGroup(group.id).length"
+        :dragging="draggingGroupId === group.id"
         @rename="(name) => renameGroup(group.id, name)"
         @remove="() => removeGroup(group.id)"
         @drop-lane="(payload) => onGroupDrop(group.id, payload)"
+        @group-drag-start="onGroupDragStart(group.id)"
+        @group-drag-end="onGroupDragEnd"
+        @group-drop="(payload) => onGroupReorder(group.id, payload)"
       >
         <Lane
           v-for="lane in store.lanesForGroup(group.id)"

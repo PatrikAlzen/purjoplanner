@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { GROUP_DRAG_MIME } from '../../utils/dnd'
 
 const props = withDefaults(
   defineProps<{
+    groupId: string
     name: string
     canRemove: boolean
     laneCount: number
+    dragging?: boolean
   }>(),
-  {}
+  { dragging: false }
 )
 
 const emit = defineEmits<{
@@ -16,6 +19,11 @@ const emit = defineEmits<{
   // Fired when a dragged lane is dropped on the group's own background
   // (not on one of its lanes) — appends it to the end of this group.
   (e: 'drop-lane', payload: { draggedId: string }): void
+  (e: 'group-drag-start'): void
+  (e: 'group-drag-end'): void
+  // Fired when another group card is dropped on this one — reorders it
+  // immediately before/after this group.
+  (e: 'group-drop', payload: { draggedId: string; position: 'before' | 'after' }): void
 }>()
 
 // Local draft so the input can be freely cleared while typing without
@@ -48,20 +56,52 @@ function onBlur() {
   if (draft.value !== props.name) emit('rename', draft.value)
 }
 
+function onHandleDragStart(e: DragEvent) {
+  e.dataTransfer?.setData(GROUP_DRAG_MIME, props.groupId)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+  emit('group-drag-start')
+}
+
+function onHandleDragEnd() {
+  emit('group-drag-end')
+}
+
 const dragOver = ref(false)
+// Which half of this card a dragged *group* is hovering over — shown as an
+// insertion line and used to decide before/after on drop. Only meaningful
+// for group-reorder drags; a dragged lane just tints the whole card (below).
+const dragOverPosition = ref<'before' | 'after' | null>(null)
+
+function isGroupDrag(e: DragEvent): boolean {
+  return !!e.dataTransfer?.types?.includes(GROUP_DRAG_MIME)
+}
+
+function positionFor(e: DragEvent): 'before' | 'after' {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
 
 function onDragOver(e: DragEvent) {
   e.preventDefault()
   dragOver.value = true
+  dragOverPosition.value = isGroupDrag(e) ? positionFor(e) : null
 }
 
 function onDragLeave() {
   dragOver.value = false
+  dragOverPosition.value = null
 }
 
 function onDrop(e: DragEvent) {
   e.preventDefault()
   dragOver.value = false
+  dragOverPosition.value = null
+  if (isGroupDrag(e)) {
+    const draggedId = e.dataTransfer?.getData(GROUP_DRAG_MIME)
+    if (!draggedId || draggedId === props.groupId) return
+    emit('group-drop', { draggedId, position: positionFor(e) })
+    return
+  }
   const draggedId = e.dataTransfer?.getData('text/plain')
   if (!draggedId) return
   emit('drop-lane', { draggedId })
@@ -69,9 +109,29 @@ function onDrop(e: DragEvent) {
 </script>
 
 <template>
-  <div class="group" :class="{ 'drag-over': dragOver }" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
+  <div
+    class="group"
+    :class="{
+      'drag-over': dragOver,
+      dragging,
+      'drag-over-before': dragOverPosition === 'before',
+      'drag-over-after': dragOverPosition === 'after'
+    }"
+    @dragover="onDragOver"
+    @dragleave="onDragLeave"
+    @drop="onDrop"
+  >
     <div class="group-header row-shell">
       <div class="label-col group-label">
+        <span
+          class="group-handle"
+          draggable="true"
+          title="Drag to reorder group"
+          aria-label="Drag to reorder group"
+          @dragstart="onHandleDragStart"
+          @dragend="onHandleDragEnd"
+          >⠿</span
+        >
         <span class="group-dot" />
         <input v-model="draft" placeholder="Group name" @input="onInput" @blur="onBlur" />
         <button
@@ -117,6 +177,30 @@ function onDrop(e: DragEvent) {
 .group.drag-over {
   background: color-mix(in srgb, var(--accent) 14%, var(--panel-bg));
 }
+.group.dragging {
+  opacity: 0.4;
+}
+.group.drag-over-before,
+.group.drag-over-after {
+  position: relative;
+}
+.group.drag-over-before::before,
+.group.drag-over-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  z-index: 4;
+}
+.group.drag-over-before::before {
+  top: -9px;
+}
+.group.drag-over-after::after {
+  bottom: -9px;
+}
 .row-shell {
   display: flex;
 }
@@ -143,6 +227,20 @@ function onDrop(e: DragEvent) {
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--ink);
+}
+.group-handle {
+  cursor: grab;
+  color: var(--line-strong);
+  font-size: 13px;
+  line-height: 1;
+  visibility: hidden;
+  user-select: none;
+}
+.group:hover .group-handle {
+  visibility: visible;
+}
+.group-handle:active {
+  cursor: grabbing;
 }
 .group-dot {
   width: 7px;

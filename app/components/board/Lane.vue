@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { GROUP_DRAG_MIME } from '../../utils/dnd'
 
 const props = withDefaults(
   defineProps<{
@@ -40,7 +41,15 @@ function positionFor(e: DragEvent): 'before' | 'after' {
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
+function isGroupDrag(e: DragEvent): boolean {
+  return !!e.dataTransfer?.types?.includes(GROUP_DRAG_MIME)
+}
+
 function onDragOver(e: DragEvent) {
+  // A dragged group card isn't a valid drop onto a lane row — leave it
+  // un-prevented so the browser shows a "not allowed" cursor instead of an
+  // insertion indicator that wouldn't do anything on drop.
+  if (isGroupDrag(e)) return
   e.preventDefault()
   dragOverPosition.value = positionFor(e)
 }
@@ -50,6 +59,7 @@ function onDragLeave() {
 }
 
 function onDrop(e: DragEvent) {
+  if (isGroupDrag(e)) return
   e.preventDefault()
   e.stopPropagation()
   const position = positionFor(e)

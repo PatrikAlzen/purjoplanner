@@ -125,7 +125,7 @@ async function commitCreate() {
           <span v-else class="name">{{ board.name }}</span>
         </button>
         <label class="icon-btn" title="Change avatar">
-          🖼
+          🖼️
           <input type="file" accept="image/*" class="file-input" @change="onAvatarChange(board.id, $event)" />
         </label>
         <button class="icon-btn" title="Rename board" @click="startEdit(board.id, board.name)">✏️</button>
