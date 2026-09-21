@@ -1,22 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useCompactMode } from '../../composables/useCompactMode'
 
-const props = withDefaults(
-  defineProps<{
-    anchorMonth: number
-    laneCount: number
-    monthWidth: number
-    groupCount?: number
-  }>(),
-  { groupCount: 1 }
-)
-
-// Each group beyond the first adds non-lane vertical space that the marker
-// (anchored to the top of the very first lane) must skip over: see
-// `groupExtraHeight` in useCompactMode.ts, which is kept in sync with
-// Group.vue's `.group` CSS (in both the normal and compact sizing).
-const { metrics, groupExtraHeight } = useCompactMode()
+const props = defineProps<{
+  anchorMonth: number
+  // How tall the line should be, in pixels — measured by the parent from
+  // the actual rendered board (top of the first lane to bottom of the
+  // last), so this component doesn't need to know anything about group
+  // headers, spacing, or compact-mode sizing.
+  height: number
+  monthWidth: number
+}>()
 
 const fraction = computed<number | null>(() => {
   const today = new Date()
@@ -32,10 +25,7 @@ const fraction = computed<number | null>(() => {
   <div
     v-if="fraction !== null"
     class="today-line"
-    :style="{
-      left: `${fraction * monthWidth}px`,
-      height: `${laneCount * metrics.laneHeight + Math.max(0, groupCount - 1) * groupExtraHeight}px`
-    }"
+    :style="{ left: `${fraction * monthWidth}px`, height: `${height}px` }"
     data-testid="today-line"
   >
     <div class="tag">Today</div>

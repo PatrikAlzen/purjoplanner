@@ -66,6 +66,14 @@ function taskViewSpan(task: Task, anchorMonth: number): TaskViewSpan | null {
 const boardWrapEl = ref<HTMLElement | null>(null)
 const boardEl = ref<HTMLElement | null>(null)
 const monthWidth = ref(0)
+// How tall the today-marker line needs to be to span from the top of the
+// first lane to the bottom of the last one. Measured directly from the
+// rendered `.lane-track` elements rather than computed from a formula of
+// group/lane CSS constants — the board's row spacing (group headers, the
+// "+ Add lane" row, gaps between group cards, compact-mode sizing) changes
+// independently of this component, and a formula drifted out of sync with
+// it more than once already.
+const todayMarkerHeight = ref(0)
 let resizeObserver: ResizeObserver | null = null
 
 function measure() {
@@ -76,6 +84,15 @@ function measure() {
   if (!boardEl.value) return
   const width = boardEl.value.clientWidth
   monthWidth.value = Math.max(0, (width - 150) / 12)
+
+  const tracks = boardEl.value.querySelectorAll<HTMLElement>('.lane-track')
+  if (tracks.length === 0) {
+    todayMarkerHeight.value = 0
+    return
+  }
+  const first = tracks[0]!.getBoundingClientRect()
+  const last = tracks[tracks.length - 1]!.getBoundingClientRect()
+  todayMarkerHeight.value = last.bottom - first.top
 }
 
 onMounted(() => {
@@ -314,9 +331,8 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
           <TodayMarker
             v-if="rowIndexForLane(lane.id) === 0"
             :anchor-month="anchorMonth"
-            :lane-count="laneRows.length"
+            :height="todayMarkerHeight"
             :month-width="monthWidth"
-            :group-count="store.sortedGroups.length"
           />
           <TaskPill
             v-for="task in tasksForRow(rowIndexForLane(lane.id))"
