@@ -26,6 +26,8 @@ logs
 # App data (file-based storage) - keep directory, ignore generated data files
 /data/*.json
 /data/backups/
+/data/boards/*.json
+/data/*.db
 !/data/.gitkeep
 
 # Test artifacts
@@ -33,3 +35,4 @@ logs
 /test-results
 /coverage
 /.playwright-data
+
