@@ -12,10 +12,12 @@ const props = withDefaults(
 )
 
 const LANE_HEIGHT = 64
-// Must match Group.vue's `.group-header` height: the marker starts at the
-// top of the first lane (below the first group's header, which doesn't
-// count), so only the headers of the groups after it add extra height.
-const GROUP_HEADER_HEIGHT = 36
+// Each group beyond the first adds non-lane vertical space that the marker
+// (anchored to the top of the very first lane) must skip over: its card
+// border (1px top + 1px bottom), its 38px header, its body's 10px bottom
+// padding, and the 16px gap before it — 66px total. Must be kept in sync
+// with Group.vue's `.group` CSS.
+const GROUP_HEADER_HEIGHT = 66
 
 const fraction = computed<number | null>(() => {
   const today = new Date()

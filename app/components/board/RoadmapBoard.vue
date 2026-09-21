@@ -263,6 +263,7 @@ function onGroupDrop(groupId: string, payload: { draggedId: string }) {
         :key="group.id"
         :name="group.name"
         :can-remove="!store.groupHasLanes(group.id)"
+        :lane-count="store.lanesForGroup(group.id).length"
         @rename="(name) => renameGroup(group.id, name)"
         @remove="() => removeGroup(group.id)"
         @drop-lane="(payload) => onGroupDrop(group.id, payload)"
