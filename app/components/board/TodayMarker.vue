@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useCompactMode } from '../../composables/useCompactMode'
 
 const props = withDefaults(
   defineProps<{
@@ -11,13 +12,11 @@ const props = withDefaults(
   { groupCount: 1 }
 )
 
-const LANE_HEIGHT = 64
 // Each group beyond the first adds non-lane vertical space that the marker
-// (anchored to the top of the very first lane) must skip over: its card
-// border (1px top + 1px bottom), its 38px header, its body's 10px bottom
-// padding, and the 16px gap before it — 66px total. Must be kept in sync
-// with Group.vue's `.group` CSS.
-const GROUP_HEADER_HEIGHT = 66
+// (anchored to the top of the very first lane) must skip over: see
+// `groupExtraHeight` in useCompactMode.ts, which is kept in sync with
+// Group.vue's `.group` CSS (in both the normal and compact sizing).
+const { metrics, groupExtraHeight } = useCompactMode()
 
 const fraction = computed<number | null>(() => {
   const today = new Date()
@@ -35,7 +34,7 @@ const fraction = computed<number | null>(() => {
     class="today-line"
     :style="{
       left: `${fraction * monthWidth}px`,
-      height: `${laneCount * LANE_HEIGHT + Math.max(0, groupCount - 1) * GROUP_HEADER_HEIGHT}px`
+      height: `${laneCount * metrics.laneHeight + Math.max(0, groupCount - 1) * groupExtraHeight}px`
     }"
     data-testid="today-line"
   >

@@ -165,7 +165,7 @@ function onDrop(e: DragEvent) {
    through there unobstructed; the bottom stays clear of any row background
    too (see `.group-body`), so the bottom corners are never covered either. */
 .group {
-  margin: 0 0 16px;
+  margin: 0 0 var(--group-gap, 16px);
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel-bg);
@@ -215,7 +215,7 @@ function onDrop(e: DragEvent) {
   flex: 1;
 }
 .group-header {
-  height: 38px;
+  height: var(--group-header-height, 38px);
   border-bottom: 1px solid var(--line);
 }
 .group-label {
@@ -295,6 +295,6 @@ function onDrop(e: DragEvent) {
    group's own background (visible in this gap) already has the matching
    radius, so nothing needs to be rounded individually down here. */
 .group-body {
-  padding-bottom: 10px;
+  padding-bottom: var(--group-body-padding, 10px);
 }
 </style>

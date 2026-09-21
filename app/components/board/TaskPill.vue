@@ -80,8 +80,8 @@ const style = computed(() => ({
 <style scoped>
 .task {
   position: absolute;
-  top: 12px;
-  height: 40px;
+  top: var(--task-top, 12px);
+  height: var(--task-height, 40px);
   border-radius: var(--radius-pill);
   display: flex;
   align-items: center;

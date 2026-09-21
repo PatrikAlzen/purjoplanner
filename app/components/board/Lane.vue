@@ -237,7 +237,7 @@ function onBlur() {
 }
 .lane-track {
   position: relative;
-  height: 64px;
+  height: var(--lane-height, 64px);
   /* Month lines on top (full --line color), week lines layered beneath at
      4x the frequency (1 month = 4 weeks) and faded via color-mix so they
      read as a subtle sub-grid rather than competing with the month lines. */

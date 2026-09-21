@@ -70,6 +70,9 @@ async function addNewTask() {
       <template #board-switcher>
         <BoardSwitcher />
       </template>
+      <template #compact-toggle>
+        <CompactToggle />
+      </template>
       <template #theme-picker>
         <ThemePicker />
       </template>

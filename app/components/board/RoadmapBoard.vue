@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useBoard } from '../../composables/useBoard'
 import { useDrag, type DragMode, type DragResult } from '../../composables/useDrag'
+import { useCompactMode } from '../../composables/useCompactMode'
 import type { Task } from '#shared/types'
 
 const props = defineProps<{
@@ -13,8 +14,7 @@ const emit = defineEmits<{
 }>()
 
 const { store, isOverlapping } = useBoard()
-
-const LANE_HEIGHT = 64
+const { metrics, cssVars } = useCompactMode()
 
 const laneRows = computed(() => store.sortedLanes)
 const tasksForWindow = computed(() => store.tasksForWindow(props.anchorMonth))
@@ -98,7 +98,7 @@ const draggingTaskId = ref<string | null>(null)
 const invalidTaskId = ref<string | null>(null)
 
 const controller = useDrag({
-  geometry: () => ({ monthWidth: monthWidth.value, laneHeight: LANE_HEIGHT, laneCount: laneRows.value.length }),
+  geometry: () => ({ monthWidth: monthWidth.value, laneHeight: metrics.value.laneHeight, laneCount: laneRows.value.length }),
   isOverlapping: (excludeId, row, start, end) => {
     const lane = laneRows.value[row]
     if (!lane) return true
@@ -273,7 +273,7 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
 
 <template>
   <div ref="boardWrapEl" class="board-wrap">
-    <div ref="boardEl" class="board">
+    <div ref="boardEl" class="board" :style="cssVars">
       <MonthHeader :anchor-month="anchorMonth" />
 
     <div v-if="store.sortedGroups.length === 0" class="empty-state">

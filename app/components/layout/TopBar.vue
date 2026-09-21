@@ -32,6 +32,7 @@ const rangeLabel = computed(() => `${label(props.anchorMonth)} – ${label(props
       <button aria-label="Next month" @click="emit('next-month')">›</button>
     </div>
     <div class="spacer" />
+    <slot name="compact-toggle" />
     <slot name="theme-picker" />
     <span class="hint">Drag a task to move it, or drag its edges to resize.</span>
     <button class="btn-primary" @click="emit('new-task')">+ New task</button>
