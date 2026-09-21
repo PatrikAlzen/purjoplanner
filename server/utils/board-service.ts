@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { createError } from 'h3'
 import type { Board, Lane, Task } from '../../shared/types'
 import { findOverlap } from '../../shared/collision'
-import { mutateBoard, readBoard, DEFAULT_THEME_ID, readBoardsIndex, mutateBoardsIndex, createBoardDataFile, deleteBoardDataFile } from './store'
+import { mutateBoard, readBoard, DEFAULT_THEME_ID, readBoardsIndex, mutateBoardsIndex, createBoardDataFile, deleteBoardDataFile, createEmptyBoard } from './store'
 import { parseWithSchema } from './http'
 import {
   laneCreateSchema,
@@ -32,15 +32,9 @@ export async function listBoards(): Promise<{ boards: Board[]; activeBoardId: st
 
 export async function createBoard(input: unknown): Promise<Board> {
   const parsed = parseWithSchema(boardCreateSchema, input)
-  const id = randomUUID()
-  const ts = nowIso()
-  const board: Board = { id, name: parsed.name, avatar: parsed.avatar ?? null, createdAt: ts, updatedAt: ts }
-  await createBoardDataFile(id)
-  const { result } = await mutateBoardsIndex((index) => {
-    index.boards.push(board)
-    return board
-  })
-  return result
+  await createEmptyBoard(parsed.name)
+  const result  = await createEmptyBoard(parsed.name)
+  return result.board
 }
 
 export async function updateBoard(id: string, input: unknown): Promise<Board> {

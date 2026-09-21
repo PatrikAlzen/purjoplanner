@@ -632,7 +632,15 @@ export async function readBoardsIndex(): Promise<BoardsIndex> {
   return ensureBoardsIndex(getDb())
 }
 
-/** Runs `mutator` with exclusive access to the boards index, persisting the result. */
+/**
+ * Runs `mutator` with exclusive access to the boards index, persisting the
+ * result once `mutator` returns.
+ *
+ * Important: the boards table isn't written until after `mutator` resolves.
+ * Don't perform side effects inside `mutator` (like `createBoardDataFile`)
+ * that depend on a board row it just added already existing in SQLite — use
+ * `createBoard()` for board creation instead.
+ */
 export async function mutateBoardsIndex<T>(
   mutator: (index: BoardsIndex) => T | Promise<T>
 ): Promise<{ result: T; index: BoardsIndex }> {
@@ -647,6 +655,44 @@ export async function mutateBoardsIndex<T>(
 async function resolveActiveBoardId(): Promise<string> {
   const index = await readBoardsIndex()
   return index.activeBoardId
+}
+
+/**
+ * Atomically creates a new board: its `boards` row and its `board_data` row
+ * are inserted in a single transaction (and the active-board setting is
+ * updated too, unless `makeActive: false`).
+ *
+ * Use this instead of hand-composing `mutateBoardsIndex` + `createBoardDataFile`.
+ * In particular, do NOT call `createBoardDataFile` from inside a
+ * `mutateBoardsIndex` mutator — the mutator's changes to the boards table
+ * aren't persisted until after it returns, so a board_data insert that runs
+ * during the mutator will reference a boards.id that isn't committed yet and
+ * fail with SQLITE_CONSTRAINT_FOREIGNKEY.
+ */
+export async function createEmptyBoard(
+  name: string,
+  opts: { makeActive?: boolean } = {}
+): Promise<{ board: Board; index: BoardsIndex }> {
+  const db = getDb()
+  const board = createBoardMeta(randomUUID(), name)
+
+  const run = db.transaction(() => {
+    db.prepare(
+      'INSERT INTO boards (id, name, avatar, createdAt, updatedAt) VALUES (@id, @name, @avatar, @createdAt, @updatedAt)'
+    ).run(board)
+    db.prepare('INSERT INTO board_data (boardId, data) VALUES (?, ?)').run(
+      board.id,
+      JSON.stringify(createDefaultBoard())
+    )
+    if (opts.makeActive ?? true) {
+      db.prepare(
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+      ).run(ACTIVE_BOARD_KEY, board.id)
+    }
+  })
+  run()
+
+  return { board, index: loadBoardsIndex(db) }
 }
 
 /** Creates a brand-new, empty board data row for `boardId`. */
