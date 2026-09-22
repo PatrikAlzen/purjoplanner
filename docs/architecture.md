@@ -127,6 +127,43 @@ Each board can be shared as a read-only, unauthenticated page at
   slot) calls `shareBoard`/`unshareBoard` on the `boards` Pinia store and
   copies the resulting `/public/<slug>` URL via the clipboard API.
 
+## Undo/redo (`app/stores/history.ts`)
+
+A small Pinia store holds an undo stack and a redo stack of `{ label, undo,
+redo }` entries; it doesn't know anything about tasks/lanes/groups itself —
+every mutating action in `app/stores/board.ts` (task/lane/group create,
+update, delete, move, rename, plus the active theme choice) pushes its own
+entry after it successfully persists, with `undo`/`redo` closures that just
+call back into other `board.ts` actions.
+
+- **Replaying a change looks like a new one, so a guard flag stops it from
+  recursing.** `history.applying` is `true` for the duration of an `undo()`/
+  `redo()` call; `push()` no-ops while it's set. Without this, calling
+  `this.renameLane(id, oldName)` from inside an undo closure would trigger
+  `renameLane`'s own history-push, immediately overwriting the redo stack
+  with a bogus entry.
+- **Create/delete entries track the entity's *current* id, not a fixed one.**
+  The server always assigns a fresh id on create, so undoing a delete (which
+  recreates the row) or redoing a create (ditto) changes the relevant id.
+  Each such entry closes over a small mutable `{ id }` ref that its own
+  `undo`/`redo` update — safe because an entry's `redo` is never invoked
+  before its `undo` has run at least once (it only reaches the redo stack by
+  being undone first), so the ref is always current by the time it's read.
+  Update/rename/move entries don't need this — they act on a stable id and
+  just replay old/new field values.
+- **History is scoped to the active board.** `board.ts`'s `load()` calls
+  `useHistoryStore().clear()`, since entries reference that board's own
+  task/lane/group ids and would 404 (or worse, silently target the wrong
+  board) if replayed after switching boards.
+- **Surfaced two ways**: `UndoRedoControls.vue` (a `TopBar.vue` `#undo-redo`
+  slot) shows Undo/Redo buttons, disabled via `history.canUndo`/`canRedo`;
+  and `pages/index.vue` listens for Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or +Y),
+  skipped while focus is in a text input/textarea so the browser's native
+  text-undo isn't hijacked.
+- **Deliberately out of scope**: whole-board CRUD (creating/renaming/deleting
+  a board via `BoardSwitcher.vue`) and theme CRUD (creating/editing a custom
+  theme) aren't tracked — only in-board editing is.
+
 ## Drag & resize (`app/composables/useDrag.ts`)
 
 Rather than a third-party drag-and-drop library, dragging is implemented with

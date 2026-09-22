@@ -28,6 +28,7 @@ const isAtToday = computed(() => props.anchorMonth === defaultAnchorMonth())
       <button class="btn-today" :disabled="isAtToday" @click="emit('jump-to-today')">Today</button>
     </div>
     <div class="spacer" />
+    <slot name="undo-redo" />
     <slot name="compact-toggle" />
     <slot name="theme-picker" />
     <slot name="share" />

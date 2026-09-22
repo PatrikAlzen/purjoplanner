@@ -32,3 +32,5 @@ logs
 /coverage
 /.playwright-data
 
+mockup.html
+ci.yml
