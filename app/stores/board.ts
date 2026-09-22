@@ -20,9 +20,9 @@ export const useBoardStore = defineStore('board', {
     tasks: [] as Task[],
     activeThemeId: 'slate-amber',
     // First month of the sliding 12-month view window, as an absolute month
-    // index. Defaults to (current month - 2), so "today" starts in the third
+    // index. Defaults to (current month - 1), so "today" starts in the second
     // visible column.
-    anchorMonth: currentAbsoluteMonth() - 2,
+    anchorMonth: currentAbsoluteMonth() - 1,
     loaded: false
   }),
 

@@ -46,7 +46,6 @@ const rangeLabel = computed(() =>
     <template v-else-if="data">
       <header class="public-header">
         <h1>{{ data.board.name }}</h1>
-        <span class="public-badge">Public read-only view</span>
         <span class="public-range mono">{{ rangeLabel }}</span>
       </header>
       <PublicRoadmapBoard
