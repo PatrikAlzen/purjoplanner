@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { monthLabel } from '#shared/window'
+import { monthLabel, defaultAnchorMonth } from '#shared/window'
 
 const props = defineProps<{
   anchorMonth: number
@@ -9,10 +9,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'prev-month'): void
   (e: 'next-month'): void
+  (e: 'jump-to-today'): void
   (e: 'new-task'): void
 }>()
 
 const rangeLabel = computed(() => `${monthLabel(props.anchorMonth)} – ${monthLabel(props.anchorMonth + 11)}`)
+const isAtToday = computed(() => props.anchorMonth === defaultAnchorMonth())
 </script>
 
 <template>
@@ -23,6 +25,7 @@ const rangeLabel = computed(() => `${monthLabel(props.anchorMonth)} – ${monthL
       <button aria-label="Previous month" @click="emit('prev-month')">‹</button>
       <span class="mono">{{ rangeLabel }}</span>
       <button aria-label="Next month" @click="emit('next-month')">›</button>
+      <button class="btn-today" :disabled="isAtToday" @click="emit('jump-to-today')">Today</button>
     </div>
     <div class="spacer" />
     <slot name="compact-toggle" />
@@ -69,6 +72,30 @@ const rangeLabel = computed(() => `${monthLabel(props.anchorMonth)} – ${monthL
 }
 .year-nav button:hover {
   background: rgba(237, 239, 230, 0.12);
+}
+/* `.year-nav .btn-today` (two classes) rather than plain `.btn-today`: the
+   circular ‹/› buttons are matched by `.year-nav button` (a class + an
+   element), which is MORE specific than a single class selector, so a bare
+   `.btn-today` rule can't actually override its fixed `width: 26px` no
+   matter what order the rules appear in. */
+.year-nav .btn-today {
+  width: auto;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  margin-left: 4px;
+  font-size: 12.5px;
+  font-family: 'Space Grotesk', sans-serif;
+  white-space: nowrap;
+}
+.btn-today:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn-today:disabled:hover {
+  background: transparent;
 }
 .spacer {
   flex: 1;

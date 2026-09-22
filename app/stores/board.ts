@@ -11,7 +11,7 @@ import type {
   TaskUpdateInput
 } from '#shared/types'
 import { errorMessage, useToast } from '../composables/useToast'
-import { currentAbsoluteMonth } from '#shared/window'
+import { defaultAnchorMonth } from '#shared/window'
 
 export const useBoardStore = defineStore('board', {
   state: () => ({
@@ -20,9 +20,8 @@ export const useBoardStore = defineStore('board', {
     tasks: [] as Task[],
     activeThemeId: 'slate-amber',
     // First month of the sliding 12-month view window, as an absolute month
-    // index. Defaults to (current month - 1), so "today" starts in the second
-    // visible column.
-    anchorMonth: currentAbsoluteMonth() - 1,
+    // index. See `defaultAnchorMonth` for what this defaults to and why.
+    anchorMonth: defaultAnchorMonth(),
     loaded: false
   }),
 

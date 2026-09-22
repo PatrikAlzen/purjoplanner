@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { taskViewSpan, currentAbsoluteMonth, publicAnchorMonth, monthLabel } from '../../shared/window'
+import {
+  taskViewSpan,
+  currentAbsoluteMonth,
+  publicAnchorMonth,
+  defaultAnchorMonth,
+  monthLabel
+} from '../../shared/window'
 
 describe('taskViewSpan', () => {
   const task = { year: 2026, start: 2, end: 4 } // Mar-May 2026, abs 2026*12+2=24314..24316
@@ -42,6 +48,19 @@ describe('currentAbsoluteMonth / publicAnchorMonth', () => {
   it('handles the year rollover when subtracting 2 months from January/February', () => {
     const jan = new Date(2026, 0, 10)
     expect(publicAnchorMonth(jan)).toBe(2025 * 12 + 10) // Nov 2025
+  })
+})
+
+describe('defaultAnchorMonth', () => {
+  it('is 1 month before currentAbsoluteMonth, independent of publicAnchorMonth', () => {
+    const now = new Date(2026, 5, 15) // June 2026
+    expect(defaultAnchorMonth(now)).toBe(2026 * 12 + 4)
+    expect(defaultAnchorMonth(now)).not.toBe(publicAnchorMonth(now))
+  })
+
+  it('handles the year rollover when subtracting 1 month from January', () => {
+    const jan = new Date(2026, 0, 10)
+    expect(defaultAnchorMonth(jan)).toBe(2025 * 12 + 11) // Dec 2025
   })
 })
 

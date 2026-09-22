@@ -52,11 +52,21 @@ export function monthLabel(abs: number): string {
 
 /**
  * The rolling window anchor used for the public read-only board view: 2
- * months before the current month, the same default the admin board itself
- * opens to (see `useBoardStore`'s initial `anchorMonth`). The 12-month
- * window this anchors therefore covers 2 months back, the current month, and
- * 9 months ahead.
+ * months before the current month. The 12-month window this anchors
+ * therefore covers 2 months back, the current month, and 9 months ahead.
+ * Deliberately independent of `defaultAnchorMonth` below — the two views are
+ * allowed to frame "today" differently.
  */
 export function publicAnchorMonth(now: Date = new Date()): number {
   return currentAbsoluteMonth(now) - 2
+}
+
+/**
+ * The rolling window anchor the admin board opens to (and returns to via
+ * "Jump to today"): 1 month before the current month, so "today" starts in
+ * the second visible column. See `useBoardStore`'s initial `anchorMonth` and
+ * `TopBar.vue`'s today button.
+ */
+export function defaultAnchorMonth(now: Date = new Date()): number {
+  return currentAbsoluteMonth(now) - 1
 }

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useBoardStore } from '../stores/board'
 import { hasOverlap } from '#shared/collision'
+import { defaultAnchorMonth } from '#shared/window'
 
 const store = useBoardStore()
 const openTaskId = ref<string | null>(null)
@@ -16,6 +17,9 @@ function prevMonth() {
 }
 function nextMonth() {
   anchorMonth.value += 1
+}
+function jumpToToday() {
+  anchorMonth.value = defaultAnchorMonth()
 }
 
 function openTask(taskId: string) {
@@ -66,7 +70,13 @@ async function addNewTask() {
 
 <template>
   <div>
-    <TopBar :anchor-month="anchorMonth" @prev-month="prevMonth" @next-month="nextMonth" @new-task="addNewTask">
+    <TopBar
+      :anchor-month="anchorMonth"
+      @prev-month="prevMonth"
+      @next-month="nextMonth"
+      @jump-to-today="jumpToToday"
+      @new-task="addNewTask"
+    >
       <template #board-switcher>
         <BoardSwitcher />
       </template>
