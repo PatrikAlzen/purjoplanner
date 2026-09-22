@@ -62,6 +62,8 @@ export interface Board {
   id: string
   name: string
   avatar: string | null // small image as a data URL, or null for no avatar
+  public: boolean // whether /public/<slug> is reachable without admin auth
+  slug: string | null // stable public URL slug; set once on first share, kept on rename/unshare
   createdAt: string
   updatedAt: string
 }

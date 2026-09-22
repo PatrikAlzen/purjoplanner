@@ -76,6 +76,9 @@ async function addNewTask() {
       <template #theme-picker>
         <ThemePicker />
       </template>
+      <template #share>
+        <ShareButton />
+      </template>
     </TopBar>
 
     <RoadmapBoard :anchor-month="anchorMonth" @open-task="openTask" />

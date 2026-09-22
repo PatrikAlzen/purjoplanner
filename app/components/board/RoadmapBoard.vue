@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useBoard } from '../../composables/useBoard'
 import { useDrag, type DragMode, type DragResult } from '../../composables/useDrag'
 import { useCompactMode } from '../../composables/useCompactMode'
+import { taskViewSpan } from '#shared/window'
 import type { Task } from '#shared/types'
 
 const props = defineProps<{
@@ -25,41 +26,18 @@ function rowIndexForLane(laneId: string): number {
 
 // --- Sliding window task spans ------------------------------------------
 // The board shows a rolling 12-month window starting at `anchorMonth` (an
-// absolute month index, i.e. `year * 12 + monthIndex`). This computes how a
-// task should be displayed within that window: its clipped [start, end]
-// range (always within 0-11, relative to `anchorMonth`), and whether each
-// edge is the task's *true* edge or a clipped continuation of a span that
-// starts/ends outside the window.
-interface TaskViewSpan {
-  start: number
-  end: number
-  clippedLeft: boolean
-  clippedRight: boolean
-}
-
-function absoluteRange(task: Task): { absStart: number; absEnd: number } {
-  return { absStart: task.year * 12 + task.start, absEnd: task.year * 12 + task.end }
-}
+// absolute month index, i.e. `year * 12 + monthIndex`). `taskViewSpan`
+// (shared with the public read-only view) computes how a task should be
+// displayed within that window: its clipped [start, end] range (always
+// within 0-11, relative to `anchorMonth`), and whether each edge is the
+// task's *true* edge or a clipped continuation of a span that starts/ends
+// outside the window.
 
 // Converts an absolute [start, end] month range back into the {year, start,
 // end} triple used for storage, choosing `year` so that `start` lands in 0-11.
 function toStorage(absStart: number, absEnd: number): { year: number; start: number; end: number } {
   const year = Math.floor(absStart / 12)
   return { year, start: absStart - year * 12, end: absEnd - year * 12 }
-}
-
-function taskViewSpan(task: Task, anchorMonth: number): TaskViewSpan | null {
-  const { absStart, absEnd } = absoluteRange(task)
-  const windowEnd = anchorMonth + 11
-  const clippedStart = Math.max(absStart, anchorMonth)
-  const clippedEnd = Math.min(absEnd, windowEnd)
-  if (clippedStart > clippedEnd) return null
-  return {
-    start: clippedStart - anchorMonth,
-    end: clippedEnd - anchorMonth,
-    clippedLeft: absStart < anchorMonth,
-    clippedRight: absEnd > windowEnd
-  }
 }
 
 // --- Geometry --------------------------------------------------------

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { monthLabel } from '#shared/window'
 
 const props = defineProps<{
   anchorMonth: number
@@ -11,15 +12,7 @@ const emit = defineEmits<{
   (e: 'new-task'): void
 }>()
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function label(abs: number): string {
-  const year = Math.floor(abs / 12)
-  const month = abs - year * 12
-  return `${MONTHS[month]} ${year}`
-}
-
-const rangeLabel = computed(() => `${label(props.anchorMonth)} – ${label(props.anchorMonth + 11)}`)
+const rangeLabel = computed(() => `${monthLabel(props.anchorMonth)} – ${monthLabel(props.anchorMonth + 11)}`)
 </script>
 
 <template>
@@ -34,6 +27,7 @@ const rangeLabel = computed(() => `${label(props.anchorMonth)} – ${label(props
     <div class="spacer" />
     <slot name="compact-toggle" />
     <slot name="theme-picker" />
+    <slot name="share" />
     <span class="hint">Drag a task to move it, or drag its edges to resize.</span>
     <button class="btn-primary" @click="emit('new-task')">+ New task</button>
   </div>

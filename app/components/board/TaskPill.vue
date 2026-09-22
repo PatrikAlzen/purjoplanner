@@ -10,8 +10,12 @@ const props = withDefaults(
     dragging: boolean
     clippedLeft?: boolean
     clippedRight?: boolean
+    // Public read-only view: no drag/resize, so the handles and grab cursor
+    // (real affordances in the admin board) are hidden rather than shown
+    // and doing nothing.
+    readonly?: boolean
   }>(),
-  { clippedLeft: false, clippedRight: false }
+  { clippedLeft: false, clippedRight: false, readonly: false }
 )
 
 const emit = defineEmits<{
@@ -30,18 +34,18 @@ const style = computed(() => ({
 <template>
   <div
     class="task"
-    :class="{ invalid, dragging, 'clipped-left': clippedLeft, 'clipped-right': clippedRight }"
+    :class="{ invalid, dragging, readonly, 'clipped-left': clippedLeft, 'clipped-right': clippedRight }"
     :style="style"
     :data-task-id="task.id"
-    role="button"
-    tabindex="0"
+    :role="readonly ? undefined : 'button'"
+    :tabindex="readonly ? undefined : 0"
     :aria-label="`${task.name} task${clippedLeft ? ' (continues from previous year)' : ''}${clippedRight ? ' (continues into next year)' : ''}`"
     :aria-describedby="task.description ? `task-desc-${task.id}` : undefined"
-    @pointerdown="emit('pointerdown-move', $event)"
+    @pointerdown="readonly ? undefined : emit('pointerdown-move', $event)"
   >
     <span v-if="clippedLeft" class="task-continuation left" aria-hidden="true">‹</span>
     <div
-      v-if="!clippedLeft"
+      v-if="!clippedLeft && !readonly"
       class="task-handle left"
       role="slider"
       tabindex="-1"
@@ -63,7 +67,7 @@ const style = computed(() => ({
       🔗
     </a>
     <div
-      v-if="!clippedRight"
+      v-if="!clippedRight && !readonly"
       class="task-handle right"
       role="slider"
       tabindex="-1"
@@ -93,6 +97,10 @@ const style = computed(() => ({
   font-size: 13px;
   font-weight: 500;
   touch-action: none;
+}
+.task.readonly {
+  cursor: default;
+  touch-action: auto;
 }
 .task.dragging {
   cursor: grabbing;

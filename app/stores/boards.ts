@@ -62,6 +62,35 @@ export const useBoardsStore = defineStore('boards', {
       }
     },
 
+    // Ensures the board is publicly reachable at /public/<slug>, assigning it
+    // a slug on first share. Idempotent: sharing an already-public board just
+    // returns it unchanged (same slug).
+    async shareBoard(id: string): Promise<Board> {
+      try {
+        const updated = await $fetch<Board>(`/api/boards/${id}/share`, { method: 'POST' })
+        const board = this.boards.find((b) => b.id === id)
+        if (board) Object.assign(board, updated)
+        return updated
+      } catch (err) {
+        useToast().pushError(errorMessage(err), () => void this.shareBoard(id))
+        throw err
+      }
+    },
+
+    async unshareBoard(id: string): Promise<void> {
+      const board = this.boards.find((b) => b.id === id)
+      const wasPublic = board?.public ?? false
+      if (board) board.public = false
+      try {
+        const updated = await $fetch<Board>(`/api/boards/${id}/unshare`, { method: 'POST' })
+        if (board) Object.assign(board, updated)
+      } catch (err) {
+        if (board) board.public = wasPublic
+        useToast().pushError(errorMessage(err), () => void this.unshareBoard(id))
+        throw err
+      }
+    },
+
     // Switches the server's active board. Does NOT reload board content
     // (lanes/tasks/theme) itself — callers should follow up with
     // `useBoardStore().load()` once this resolves.

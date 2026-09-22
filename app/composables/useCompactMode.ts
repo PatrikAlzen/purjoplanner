@@ -18,7 +18,11 @@ export interface BoardMetrics {
   taskTop: number
 }
 
-const NORMAL: BoardMetrics = {
+// Exported (rather than kept module-private) so the public read-only board
+// view can use the normal-mode metrics directly without depending on
+// `useUiStore` — compact mode is a per-admin-browser preference that has no
+// meaning for an anonymous public viewer.
+export const NORMAL_METRICS: BoardMetrics = {
   laneHeight: 64,
   groupHeaderHeight: 38,
   groupGap: 16,
@@ -36,19 +40,22 @@ const COMPACT: BoardMetrics = {
   taskTop: 6
 }
 
+export function metricsToCssVars(metrics: BoardMetrics): Record<string, string> {
+  return {
+    '--lane-height': `${metrics.laneHeight}px`,
+    '--group-header-height': `${metrics.groupHeaderHeight}px`,
+    '--group-gap': `${metrics.groupGap}px`,
+    '--group-body-padding': `${metrics.groupBodyPadding}px`,
+    '--task-height': `${metrics.taskHeight}px`,
+    '--task-top': `${metrics.taskTop}px`
+  }
+}
+
 export function useCompactMode() {
   const uiStore = useUiStore()
 
-  const metrics = computed<BoardMetrics>(() => (uiStore.compact ? COMPACT : NORMAL))
-
-  const cssVars = computed<Record<string, string>>(() => ({
-    '--lane-height': `${metrics.value.laneHeight}px`,
-    '--group-header-height': `${metrics.value.groupHeaderHeight}px`,
-    '--group-gap': `${metrics.value.groupGap}px`,
-    '--group-body-padding': `${metrics.value.groupBodyPadding}px`,
-    '--task-height': `${metrics.value.taskHeight}px`,
-    '--task-top': `${metrics.value.taskTop}px`
-  }))
+  const metrics = computed<BoardMetrics>(() => (uiStore.compact ? COMPACT : NORMAL_METRICS))
+  const cssVars = computed<Record<string, string>>(() => metricsToCssVars(metrics.value))
 
   return {
     compact: computed(() => uiStore.compact),

@@ -9,8 +9,10 @@ const props = withDefaults(
     canRemove: boolean
     even: boolean
     dragging?: boolean
+    // Public read-only view: no renaming, removing, or drag-to-reorder.
+    readonly?: boolean
   }>(),
-  { even: false, dragging: false }
+  { even: false, dragging: false, readonly: false }
 )
 
 const emit = defineEmits<{
@@ -49,7 +51,7 @@ function onDragOver(e: DragEvent) {
   // A dragged group card isn't a valid drop onto a lane row — leave it
   // un-prevented so the browser shows a "not allowed" cursor instead of an
   // insertion indicator that wouldn't do anything on drop.
-  if (isGroupDrag(e)) return
+  if (props.readonly || isGroupDrag(e)) return
   e.preventDefault()
   dragOverPosition.value = positionFor(e)
 }
@@ -59,7 +61,7 @@ function onDragLeave() {
 }
 
 function onDrop(e: DragEvent) {
-  if (isGroupDrag(e)) return
+  if (props.readonly || isGroupDrag(e)) return
   e.preventDefault()
   e.stopPropagation()
   const position = positionFor(e)
@@ -115,6 +117,7 @@ function onBlur() {
   >
     <div class="label-col lane-label">
       <span
+        v-if="!readonly"
         class="lane-handle"
         draggable="true"
         title="Drag to move lane"
@@ -123,9 +126,10 @@ function onBlur() {
         @dragend="onHandleDragEnd"
         >⠿</span
       >
-      <input v-model="draft" placeholder="Lane name" @input="onInput" @blur="onBlur" />
+      <input v-if="!readonly" v-model="draft" placeholder="Lane name" @input="onInput" @blur="onBlur" />
+      <span v-else class="name-static">{{ name }}</span>
       <button
-        v-if="canRemove"
+        v-if="canRemove && !readonly"
         class="lane-remove"
         title="Remove empty lane"
         aria-label="Remove lane"
@@ -219,6 +223,12 @@ function onBlur() {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   background: #fff;
+}
+.name-static {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 2px;
 }
 .lane-remove {
   background: none;

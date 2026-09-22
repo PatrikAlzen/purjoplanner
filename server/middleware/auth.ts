@@ -1,8 +1,20 @@
 import { createError, defineEventHandler, getHeader, getRequestURL } from 'h3'
 
-// Framework/static assets: these have to be reachable even when a request is
-// rejected below, or Nuxt's own error page can't render.
-const PUBLIC_PATH_PREFIXES = ['/_nuxt/', '/favicon.ico', '/favicon.svg', '/robots.txt']
+const PUBLIC_PATH_PREFIXES = [
+  // Framework/static assets: these have to be reachable even when a request
+  // is rejected below, or Nuxt's own error page can't render.
+  '/_nuxt/',
+  '/favicon.ico',
+  '/favicon.svg',
+  '/robots.txt',
+  // Intentionally public: read-only board share links (app/pages/public/) and
+  // the API route that feeds them (server/api/public/). A board is only
+  // reachable this way once explicitly shared (see `shareBoard` in
+  // board-service.ts) — this bypass applies to the route, not to which
+  // boards it can return data for.
+  '/public/',
+  '/api/public/'
+]
 
 function splitList(value: string, separator: string): string[] {
   return value

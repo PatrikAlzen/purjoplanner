@@ -1,8 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { createError } from 'h3'
-import type { Board, Group, Lane, Task } from '../../shared/types'
+import type { Board, BoardData, Group, Lane, Task, Theme } from '../../shared/types'
 import { findOverlap } from '../../shared/collision'
-import { mutateBoard, readBoard, DEFAULT_THEME_ID, readBoardsIndex, mutateBoardsIndex, createBoardDataFile, deleteBoardDataFile, createEmptyBoard } from './store'
+import { taskViewSpan, publicAnchorMonth } from '../../shared/window'
+import {
+  mutateBoard,
+  readBoard,
+  readBoardById,
+  DEFAULT_THEME_ID,
+  readBoardsIndex,
+  readThemes,
+  mutateBoardsIndex,
+  createBoardDataFile,
+  deleteBoardDataFile,
+  createEmptyBoard
+} from './store'
+import { uniqueSlug } from './slug'
 import { parseWithSchema } from './http'
 import {
   groupCreateSchema,
@@ -79,6 +92,87 @@ export async function setActiveBoard(id: string): Promise<{ activeBoardId: strin
     return id
   })
   return { activeBoardId: result }
+}
+
+// ---------------------------------------------------------------------------
+// Public sharing
+// ---------------------------------------------------------------------------
+
+/**
+ * Makes a board reachable at `/public/<slug>` without admin auth. Picking a
+ * slug is idempotent: once a board has one, sharing it again (e.g. after an
+ * `unshareBoard`) reuses it rather than minting a new URL.
+ */
+export async function shareBoard(id: string): Promise<Board> {
+  const { result } = await mutateBoardsIndex((index) => {
+    const board = index.boards.find((b) => b.id === id)
+    if (!board) {
+      throw createError({ statusCode: 404, statusMessage: 'Board not found' })
+    }
+    if (!board.slug) {
+      board.slug = uniqueSlug(board.name, (candidate) => index.boards.some((b) => b.id !== id && b.slug === candidate))
+    }
+    board.public = true
+    board.updatedAt = nowIso()
+    return board
+  })
+  return result
+}
+
+/** Revokes public access. The board keeps its slug so re-sharing it later reuses the same URL. */
+export async function unshareBoard(id: string): Promise<Board> {
+  const { result } = await mutateBoardsIndex((index) => {
+    const board = index.boards.find((b) => b.id === id)
+    if (!board) {
+      throw createError({ statusCode: 404, statusMessage: 'Board not found' })
+    }
+    board.public = false
+    board.updatedAt = nowIso()
+    return board
+  })
+  return result
+}
+
+export interface PublicBoardView {
+  board: { id: string; name: string }
+  theme: Theme
+  groups: Group[]
+  lanes: Lane[]
+  tasks: Task[]
+  anchorMonth: number
+}
+
+/**
+ * Looks up a board by its public slug and, if it's currently shared, returns
+ * everything the read-only public view needs: the board's groups/lanes, its
+ * active theme, and only the tasks visible in the public rolling window
+ * (2 months before today through 9 months after — see `publicAnchorMonth`).
+ * Returns `undefined` if no board matches or the match isn't public — the
+ * route should treat both the same way (404), not reveal which it was.
+ */
+export async function getPublicBoardView(slug: string): Promise<PublicBoardView | undefined> {
+  const index = await readBoardsIndex()
+  const boardMeta = index.boards.find((b) => b.slug === slug && b.public)
+  if (!boardMeta) return undefined
+
+  const data: BoardData | undefined = await readBoardById(boardMeta.id)
+  if (!data) return undefined
+
+  const themesData = await readThemes()
+  const theme = themesData.themes.find((t) => t.id === data.activeThemeId) ?? themesData.themes[0]
+  if (!theme) return undefined
+
+  const anchorMonth = publicAnchorMonth()
+  const tasks = data.tasks.filter((t) => taskViewSpan(t, anchorMonth) !== null)
+
+  return {
+    board: { id: boardMeta.id, name: boardMeta.name },
+    theme,
+    groups: data.groups,
+    lanes: data.lanes,
+    tasks,
+    anchorMonth
+  }
 }
 
 // ---------------------------------------------------------------------------

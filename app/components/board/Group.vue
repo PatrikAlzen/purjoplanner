@@ -9,8 +9,10 @@ const props = withDefaults(
     canRemove: boolean
     laneCount: number
     dragging?: boolean
+    // Public read-only view: no renaming, removing, or drag-to-reorder.
+    readonly?: boolean
   }>(),
-  { dragging: false }
+  { dragging: false, readonly: false }
 )
 
 const emit = defineEmits<{
@@ -82,6 +84,7 @@ function positionFor(e: DragEvent): 'before' | 'after' {
 }
 
 function onDragOver(e: DragEvent) {
+  if (props.readonly) return
   e.preventDefault()
   dragOver.value = true
   dragOverPosition.value = isGroupDrag(e) ? positionFor(e) : null
@@ -93,6 +96,7 @@ function onDragLeave() {
 }
 
 function onDrop(e: DragEvent) {
+  if (props.readonly) return
   e.preventDefault()
   dragOver.value = false
   dragOverPosition.value = null
@@ -124,6 +128,7 @@ function onDrop(e: DragEvent) {
     <div class="group-header row-shell">
       <div class="label-col group-label">
         <span
+          v-if="!readonly"
           class="group-handle"
           draggable="true"
           title="Drag to reorder group"
@@ -133,9 +138,10 @@ function onDrop(e: DragEvent) {
           >⠿</span
         >
         <span class="group-dot" />
-        <input v-model="draft" placeholder="Group name" @input="onInput" @blur="onBlur" />
+        <input v-if="!readonly" v-model="draft" placeholder="Group name" @input="onInput" @blur="onBlur" />
+        <span v-else class="name-static">{{ name }}</span>
         <button
-          v-if="canRemove"
+          v-if="canRemove && !readonly"
           class="group-remove"
           title="Remove empty group"
           aria-label="Remove group"
@@ -263,6 +269,12 @@ function onDrop(e: DragEvent) {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   background: #fff;
+}
+.name-static {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 2px;
 }
 .group-remove {
   background: none;

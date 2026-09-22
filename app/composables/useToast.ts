@@ -23,6 +23,11 @@ function pushError(message: string, retry?: () => void, autoDismissMs = 6000) {
   return id
 }
 
+/** Same rendering as an error toast, but for non-error confirmations (e.g. "Link copied"). */
+function pushMessage(message: string, autoDismissMs = 3000) {
+  return pushError(message, undefined, autoDismissMs)
+}
+
 /** Extracts a user-friendly message from a failed $fetch call (h3 error shape). */
 export function errorMessage(err: unknown): string {
   const anyErr = err as { data?: { statusMessage?: string }; statusMessage?: string; message?: string }
@@ -35,5 +40,5 @@ export function errorMessage(err: unknown): string {
  * optional retry affordance.
  */
 export function useToast() {
-  return { toasts, pushError, dismissToast }
+  return { toasts, pushError, pushMessage, dismissToast }
 }

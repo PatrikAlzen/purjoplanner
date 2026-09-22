@@ -11,13 +11,7 @@ import type {
   TaskUpdateInput
 } from '#shared/types'
 import { errorMessage, useToast } from '../composables/useToast'
-
-// Absolute month index (Jan 1970 = 0, matching `year * 12 + monthIndex` used
-// throughout the app and in shared/collision.ts).
-function currentAbsoluteMonth(): number {
-  const now = new Date()
-  return now.getFullYear() * 12 + now.getMonth()
-}
+import { currentAbsoluteMonth } from '#shared/window'
 
 export const useBoardStore = defineStore('board', {
   state: () => ({

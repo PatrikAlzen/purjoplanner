@@ -479,7 +479,16 @@ function migrateBoardData(raw: BoardData): { data: BoardData; changed: boolean }
 
 function createBoardMeta(id: string, name: string): Board {
   const ts = new Date().toISOString()
-  return { id, name, avatar: null, createdAt: ts, updatedAt: ts }
+  return { id, name, avatar: null, public: false, slug: null, createdAt: ts, updatedAt: ts }
+}
+
+/** `Board` as SQLite sees it: `public` as a plain 0/1 integer, `slug` defaulted if omitted. */
+function toBoardRow(board: Board): Record<string, unknown> {
+  return { ...board, slug: board.slug ?? null, public: board.public ? 1 : 0 }
+}
+
+function fromBoardRow(row: Record<string, unknown>): Board {
+  return { ...row, public: !!row.public } as Board
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +509,8 @@ function openDb(): Database.Database {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       avatar TEXT,
+      slug TEXT,
+      public INTEGER NOT NULL DEFAULT 0,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
@@ -520,6 +531,7 @@ function openDb(): Database.Database {
     );
   `)
 
+  migrateBoardsTableColumns(db)
   migrateLegacyFilesIfPresent(db, dir)
 
   return db
@@ -528,6 +540,21 @@ function openDb(): Database.Database {
 function getDb(): Database.Database {
   if (!_db) _db = openDb()
   return _db
+}
+
+/**
+ * Additive migration for `boards` rows created before public sharing
+ * existed: `CREATE TABLE IF NOT EXISTS` above doesn't retrofit new columns
+ * onto an already-existing table, so a pre-existing app.db needs its `slug`/
+ * `public` columns (and the slug uniqueness index) added explicitly here.
+ * Safe to run on every startup: each step is a no-op once already applied.
+ */
+function migrateBoardsTableColumns(db: Database.Database): void {
+  const columns = db.prepare('PRAGMA table_info(boards)').all() as { name: string }[]
+  const names = new Set(columns.map((c) => c.name))
+  if (!names.has('slug')) db.exec('ALTER TABLE boards ADD COLUMN slug TEXT')
+  if (!names.has('public')) db.exec('ALTER TABLE boards ADD COLUMN public INTEGER NOT NULL DEFAULT 0')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_slug ON boards(slug) WHERE slug IS NOT NULL')
 }
 
 // ---------------------------------------------------------------------------
@@ -553,7 +580,8 @@ function migrateLegacyFilesIfPresent(db: Database.Database, dir: string): void {
   }
 
   const insertBoard = db.prepare(
-    'INSERT INTO boards (id, name, avatar, createdAt, updatedAt) VALUES (@id, @name, @avatar, @createdAt, @updatedAt)'
+    `INSERT INTO boards (id, name, avatar, slug, public, createdAt, updatedAt)
+     VALUES (@id, @name, @avatar, @slug, @public, @createdAt, @updatedAt)`
   )
   const insertBoardData = db.prepare('INSERT INTO board_data (boardId, data) VALUES (?, ?)')
   const setSetting = db.prepare(
@@ -566,7 +594,9 @@ function migrateLegacyFilesIfPresent(db: Database.Database, dir: string): void {
   const importFromMultiBoardLayout = db.transaction(() => {
     const index = readJsonSafe<BoardsIndex>(boardsIndexPath)!
     for (const board of index.boards) {
-      insertBoard.run(board)
+      // Legacy boards.json predates public sharing, so backfill the new
+      // fields rather than assuming they're present.
+      insertBoard.run(toBoardRow({ ...board, public: board.public ?? false, slug: board.slug ?? null }))
       if (existsSync(boardsDir)) {
         const dataPath = join(boardsDir, `${board.id}.json`)
         const data = readJsonSafe<BoardData>(dataPath) ?? createDefaultBoard()
@@ -579,7 +609,7 @@ function migrateLegacyFilesIfPresent(db: Database.Database, dir: string): void {
   const importFromLegacySingleBoard = db.transaction(() => {
     const legacyBoard = readJsonSafe<BoardData>(legacyBoardPath) ?? createDefaultBoard()
     const id = randomUUID()
-    insertBoard.run(createBoardMeta(id, DEFAULT_BOARD_NAME))
+    insertBoard.run(toBoardRow(createBoardMeta(id, DEFAULT_BOARD_NAME)))
     insertBoardData.run(id, JSON.stringify(legacyBoard))
     setSetting.run(ACTIVE_BOARD_KEY, id)
   })
@@ -599,9 +629,10 @@ function migrateLegacyFilesIfPresent(db: Database.Database, dir: string): void {
 // ---------------------------------------------------------------------------
 
 function loadBoardsIndex(db: Database.Database): BoardsIndex {
-  const boards = db
-    .prepare('SELECT id, name, avatar, createdAt, updatedAt FROM boards ORDER BY createdAt ASC')
-    .all() as Board[]
+  const rows = db
+    .prepare('SELECT id, name, avatar, slug, public, createdAt, updatedAt FROM boards ORDER BY createdAt ASC')
+    .all() as Record<string, unknown>[]
+  const boards = rows.map(fromBoardRow)
   const activeRow = db.prepare('SELECT value FROM settings WHERE key = ?').get(ACTIVE_BOARD_KEY) as
     | { value: string }
     | undefined
@@ -610,14 +641,16 @@ function loadBoardsIndex(db: Database.Database): BoardsIndex {
 
 function saveBoardsIndex(db: Database.Database, index: BoardsIndex): void {
   const upsertBoard = db.prepare(`
-    INSERT INTO boards (id, name, avatar, createdAt, updatedAt)
-    VALUES (@id, @name, @avatar, @createdAt, @updatedAt)
+    INSERT INTO boards (id, name, avatar, slug, public, createdAt, updatedAt)
+    VALUES (@id, @name, @avatar, @slug, @public, @createdAt, @updatedAt)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       avatar = excluded.avatar,
+      slug = excluded.slug,
+      public = excluded.public,
       updatedAt = excluded.updatedAt
   `)
-  for (const board of index.boards) upsertBoard.run(board)
+  for (const board of index.boards) upsertBoard.run(toBoardRow(board))
 
   const keepIds = index.boards.map((b) => b.id)
   if (keepIds.length > 0) {
@@ -767,6 +800,15 @@ export async function readBoard(): Promise<BoardData> {
   const seeded = createDefaultBoard()
   saveBoardData(db, boardId, seeded)
   return seeded
+}
+
+/**
+ * Reads a specific board's data by id, regardless of which board is
+ * currently active — used by the public share view, which renders whatever
+ * board its slug points to. Returns `undefined` if the board doesn't exist.
+ */
+export async function readBoardById(boardId: string): Promise<BoardData | undefined> {
+  return loadBoardData(getDb(), boardId)
 }
 
 /** Overwrites the active board's data row. Prefer `mutateBoard` for read-modify-write. */
