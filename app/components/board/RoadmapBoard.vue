@@ -55,6 +55,13 @@ const monthWidth = ref(0)
 // independently of this component, and a formula drifted out of sync with
 // it more than once already.
 const todayMarkerHeight = ref(0)
+// Real top offset (viewport px) of each lane row's `.lane-track`, in the
+// same top-to-bottom order as `laneRows`/row indices. Same reasoning as
+// `todayMarkerHeight` above: rows in different groups aren't evenly spaced,
+// so `useDrag`'s move-drag math uses these instead of a uniform
+// `row * laneHeight` formula to know which row the pointer is over — see
+// the comment on `DragGeometry.rowOffsets`.
+const rowOffsets = ref<number[]>([])
 let resizeObserver: ResizeObserver | null = null
 
 function measure() {
@@ -67,6 +74,7 @@ function measure() {
   monthWidth.value = Math.max(0, (width - 150) / 12)
 
   const tracks = boardEl.value.querySelectorAll<HTMLElement>('.lane-track')
+  rowOffsets.value = Array.from(tracks, (t) => t.getBoundingClientRect().top)
   if (tracks.length === 0) {
     todayMarkerHeight.value = 0
     return
@@ -96,7 +104,12 @@ const draggingTaskId = ref<string | null>(null)
 const invalidTaskId = ref<string | null>(null)
 
 const controller = useDrag({
-  geometry: () => ({ monthWidth: monthWidth.value, laneHeight: metrics.value.laneHeight, laneCount: laneRows.value.length }),
+  geometry: () => ({
+    monthWidth: monthWidth.value,
+    laneHeight: metrics.value.laneHeight,
+    laneCount: laneRows.value.length,
+    rowOffsets: rowOffsets.value
+  }),
   isOverlapping: (excludeId, row, start, end) => {
     const lane = laneRows.value[row]
     if (!lane) return true
@@ -153,6 +166,10 @@ function startDrag(e: PointerEvent, task: Task, mode: DragMode) {
     emit('open-task', task.id)
     return
   }
+  // Re-measure right before dragging starts: `rowOffsets` is viewport-
+  // relative, so it goes stale if the page has scrolled vertically since the
+  // last resize-triggered measurement, even though nothing actually resized.
+  if (mode === 'move') measure()
   const row = rowIndexForLane(task.laneId)
   controller.start(e, task.id, mode, { start: span.start, end: span.end, row })
   window.addEventListener('pointermove', onWindowMove)

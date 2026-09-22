@@ -7,6 +7,16 @@ export interface DragGeometry {
   monthWidth: number
   laneHeight: number
   laneCount: number
+  // Real top offset (viewport px — comparable to PointerEvent.clientY) of
+  // each lane row, as measured from the DOM. Rows in different groups aren't
+  // evenly spaced (a group header, margin, and body padding sit between the
+  // last lane of one group and the first lane of the next), so a uniform
+  // `row * laneHeight` formula falls behind the real layout as soon as a
+  // drag crosses a group boundary — the pill would jump further than the
+  // pointer actually moved, desyncing the two. Optional so pure-math
+  // callers/tests that don't care about grouping can omit it and fall back
+  // to the uniform-height approximation below.
+  rowOffsets?: number[]
 }
 
 export interface DragStartState {
@@ -42,6 +52,32 @@ function snapToStep(months: number): number {
   return Math.round(months * WEEKS_PER_MONTH) / WEEKS_PER_MONTH
 }
 
+// Which row the pointer's vertical movement now puts the dragged task in.
+// Prefers real measured row positions (`rowOffsets`) when available — moving
+// `dy` px from the row's actual on-screen position and snapping to whichever
+// row's real position is closest handles the uneven spacing across group
+// boundaries correctly. Falls back to a uniform-height approximation
+// (`row * laneHeight`) when `rowOffsets` isn't provided.
+function rowForVerticalDelta(geometry: DragGeometry, origRow: number, dy: number): number {
+  const { rowOffsets, laneHeight, laneCount } = geometry
+  const origOffset = rowOffsets?.[origRow]
+  if (rowOffsets && rowOffsets.length === laneCount && origOffset !== undefined) {
+    const targetY = origOffset + dy
+    let best = origRow
+    let bestDist = Infinity
+    for (let i = 0; i < rowOffsets.length; i++) {
+      const dist = Math.abs(rowOffsets[i]! - targetY)
+      if (dist < bestDist) {
+        bestDist = dist
+        best = i
+      }
+    }
+    return best
+  }
+  const dRows = laneHeight > 0 ? Math.round(dy / laneHeight) : 0
+  return clamp(origRow + dRows, 0, Math.max(0, laneCount - 1))
+}
+
 /**
  * Given the drag's starting state and the current pointer delta (in pixels),
  * computes the proposed new [start, end, row] for a task, clamped to the
@@ -59,7 +95,6 @@ export function computeDragResult(
   const weekWidth = geometry.monthWidth / WEEKS_PER_MONTH
   const dWeeks = weekWidth > 0 ? Math.round(dx / weekWidth) : 0
   const dMonths = dWeeks * STEP_MONTHS
-  const dRows = geometry.laneHeight > 0 ? Math.round(dy / geometry.laneHeight) : 0
   const duration = snapToStep(startState.origEnd - startState.origStart)
 
   let start = startState.origStart
@@ -69,7 +104,7 @@ export function computeDragResult(
   if (startState.mode === 'move') {
     start = snapToStep(clamp(startState.origStart + dMonths, 0, MAX_END_MONTH - duration))
     end = snapToStep(start + duration)
-    row = clamp(startState.origRow + dRows, 0, Math.max(0, geometry.laneCount - 1))
+    row = rowForVerticalDelta(geometry, startState.origRow, dy)
   } else if (startState.mode === 'resize-left') {
     start = snapToStep(clamp(startState.origStart + dMonths, 0, startState.origEnd))
     end = startState.origEnd

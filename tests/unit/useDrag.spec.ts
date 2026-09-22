@@ -34,6 +34,46 @@ describe('computeDragResult', () => {
     expect(result.row).toBe(2)
   })
 
+  describe('row detection across uneven row spacing (rowOffsets)', () => {
+    // Two lanes 64px apart within one group (rows 0-1), then a group
+    // boundary — header/margin/padding between group cards — adds much more
+    // than 64px before the next group's first lane (rows 2-3). Regression
+    // for a bug where dragging a task from one group to another jumped as
+    // soon as the pointer moved half of the *uniform* laneHeight, even
+    // though the real next row was much further away, desyncing the pill
+    // from the pointer.
+    const groupedGeometry = { monthWidth: 40, laneHeight: 64, laneCount: 4, rowOffsets: [100, 164, 280, 344] }
+
+    it('does not jump to the next group until the pointer passes the real midpoint', () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 1 }
+      // 40px down from row 1 (offset 164) is more than half of the *uniform*
+      // 64px laneHeight (the old formula would round this up to a row
+      // change), but the real next row is 116px away — should stay put.
+      const result = computeDragResult(start, 0, 40, groupedGeometry, noOverlap)
+      expect(result.row).toBe(1)
+    })
+
+    it('snaps to the next row once the pointer passes its real midpoint', () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 1 }
+      // Midpoint between row 1 (164) and row 2 (280) is 222, i.e. dy=58.
+      const result = computeDragResult(start, 0, 70, groupedGeometry, noOverlap)
+      expect(result.row).toBe(2)
+    })
+
+    it('falls back to the uniform laneHeight formula when rowOffsets is omitted', () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0 }
+      const result = computeDragResult(start, 0, 40, geometry, noOverlap)
+      expect(result.row).toBe(1) // round(40 / 64) = 1, same as before this feature existed
+    })
+
+    it('falls back when rowOffsets is stale (length does not match laneCount)', () => {
+      const stale = { monthWidth: 40, laneHeight: 64, laneCount: 3, rowOffsets: [100, 164] }
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0 }
+      const result = computeDragResult(start, 0, 640, stale, noOverlap)
+      expect(result.row).toBe(2)
+    })
+  })
+
   it('resize-left cannot pass the current end', () => {
     const start: DragStartState = { mode: 'resize-left', origStart: 2, origEnd: 4, origRow: 0 }
     const result = computeDragResult(start, 400, 0, geometry, noOverlap)
