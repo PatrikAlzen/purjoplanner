@@ -7,7 +7,11 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:3000',
-    trace: 'on-first-retry'
+    trace: 'on-first-retry',
+    extraHTTPHeaders: {
+      'x-user-id': 'e2e-tester',
+      'x-user-groups': 'e2e-admins'
+    }
   },
   webServer: {
     command: 'npm run dev',
@@ -15,7 +19,8 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 60000,
     env: {
-      NUXT_DATA_DIR: '.playwright-data'
+      NUXT_DATA_DIR: '.playwright-data',
+      NUXT_AUTH_ADMIN_GROUP: 'e2e-admins'
     }
   },
   projects: [

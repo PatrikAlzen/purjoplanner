@@ -57,6 +57,27 @@ in place). These are unit tested in isolation and reused both by the server
 (to reject invalid mutations) and the client (to preview drag validity and to
 find the first free lane for a new task).
 
+## Access control (`server/middleware/auth.ts`)
+
+Production is served behind an F5 that authenticates the user and forwards
+their identity as headers. There is currently no non-admin role — every route
+(pages and `/api/*` alike) requires membership in a configurable admin group:
+
+- A Nitro server middleware (runs before every route) reads the configured
+  user-id and group-membership headers (`runtimeConfig.auth`, overridable via
+  `NUXT_AUTH_USER_HEADER` / `NUXT_AUTH_GROUPS_HEADER` /
+  `NUXT_AUTH_GROUPS_SEPARATOR` / `NUXT_AUTH_ADMIN_GROUP`).
+- `NUXT_AUTH_ADMIN_GROUP` accepts one group or several (same separator as the
+  groups header). Matching is case-insensitive.
+- The gate **fails closed**: no admin group configured → every request is
+  rejected with `500`, not waved through. Missing/empty identity header →
+  `401`. Identity present but no matching group → `403`.
+- `/_nuxt/*`, `/favicon.*` and `/robots.txt` are excluded so Nuxt's own error
+  page can still render its assets when a request is rejected.
+
+See the README's "Access control" section for the env vars and how to
+exercise this locally without F5 in front of it.
+
 ## Drag & resize (`app/composables/useDrag.ts`)
 
 Rather than a third-party drag-and-drop library, dragging is implemented with
