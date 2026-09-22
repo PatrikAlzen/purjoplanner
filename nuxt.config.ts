@@ -29,7 +29,7 @@ export default defineNuxtConfig({
       // Group(s) (same separator as above) allowed to use the app. Matched
       // case-insensitively. Left empty, every request is rejected — the app
       // refuses to run wide open without an explicit admin group.
-      adminGroup: process.env.NUXT_AUTH_ADMIN_GROUP || 'admin'
+      adminGroup: process.env.NUXT_AUTH_ADMIN_GROUP || ''
     }
   }
 })

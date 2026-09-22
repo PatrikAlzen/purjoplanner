@@ -10,7 +10,12 @@ const dataDir = await mkdtemp(join(tmpdir(), 'waypoint-api-auth-unconfigured-'))
 await setup({
   rootDir: fileURLToPath(new URL('../..', import.meta.url)),
   server: true,
-  env: { NUXT_DATA_DIR: dataDir }
+  // Force this empty rather than just omitting it: dotenv-style loading
+  // doesn't override a variable that's already set, so an explicit '' here
+  // wins over any value a developer's local (gitignored) .env file sets for
+  // real dev use (e.g. NUXT_AUTH_ADMIN_GROUP=admin) — otherwise this test
+  // only exercises "unconfigured" on machines with no such .env file.
+  env: { NUXT_DATA_DIR: dataDir, NUXT_AUTH_ADMIN_GROUP: '' }
 })
 
 describe('auth gate with no admin group configured', () => {

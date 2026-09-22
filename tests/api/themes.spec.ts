@@ -17,10 +17,11 @@ await setup({
 const authedFetch = createAuthedFetch($fetch)
 
 describe('theme API', () => {
-  it('GET /api/themes returns 4 built-in themes', async () => {
+  it('GET /api/themes includes 4 built-in themes among the seeded presets', async () => {
     const themes = await authedFetch('/api/themes')
-    expect(themes.length).toBe(4)
-    expect(themes.every((t: any) => t.builtIn)).toBe(true)
+    const builtIn = themes.filter((t: any) => t.builtIn)
+    expect(builtIn.length).toBe(4)
+    expect(themes.length).toBeGreaterThanOrEqual(builtIn.length)
   })
 
   it('creates, updates and deletes a custom theme', async () => {

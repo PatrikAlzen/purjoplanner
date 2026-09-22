@@ -3,8 +3,8 @@
 Purjoplanner is a lightweight, self-hosted roadmap planning tool: a month-by-month
 (Jan-Dec) board where you drag & resize colored task "sausages" across lanes,
 attach descriptions and ticket/wiki links, and theme the whole board to match
-your team's style. Data is stored as plain JSON files on disk — no database
-required.
+your team's style. Data is stored in a single embedded SQLite file on disk —
+no separate database server to run.
 
 Built with Nuxt 4 (Vue 3 + Nitro), Pinia, and Zod. See
 [research.md](./research.md) for the full design/spec document and
@@ -19,8 +19,11 @@ Built with Nuxt 4 (Vue 3 + Nitro), Pinia, and Zod. See
   lives in a named, reorderable lane.
 - Multiple built-in themes (Slate & Amber, Midnight, Studio Light, Forest)
   plus a theme editor for creating your own.
-- File-based JSON storage with atomic writes, automatic `.bak` backups, and a
+- Single-file embedded SQLite storage (no database server to run) with a
   configurable data directory.
+- Share any board as a read-only, unauthenticated page at `/public/<slug>` via
+  the header's Share button — shows a rolling 12-month window (2 months
+  before today through 9 months after), no login required.
 
 ## Setup
 
@@ -79,8 +82,8 @@ Check out the [deployment documentation](https://nuxt.com/docs/getting-started/d
 
 ## Data storage
 
-Board and theme data are stored as JSON under `data/` by default
-(`data/board.json`, `data/themes.json`), created automatically (seeded with
+Board and theme data are stored in a single SQLite database file under
+`data/` by default (`data/app.db`), created automatically (seeded with
 default lanes and themes) on first run. Override the location with the
 `NUXT_DATA_DIR` environment variable, e.g.:
 
@@ -88,9 +91,11 @@ default lanes and themes) on first run. Override the location with the
 NUXT_DATA_DIR=/var/lib/purjoplanner npm run preview
 ```
 
-Every write is atomic (temp file + rename) and keeps a `.bak` copy of the
-previous version alongside the live file, so a crash mid-write can't corrupt
-your data and you always have one level of manual rollback available.
+Back up or move your data by copying that one file — SQLite's WAL journaling
+handles crash safety, so there's no separate `.bak` file to manage. If you're
+upgrading from a version of Purjoplanner that used the older per-board JSON
+files, they're imported into the database automatically the first time it
+starts against a data directory that has them but no `app.db` yet.
 
 ## Access control
 
@@ -118,6 +123,16 @@ and a request whose groups don't include an admin group gets `403`.
 ```bash
 NUXT_AUTH_ADMIN_GROUP=roadmap-admins npm run preview
 ```
+
+### Public sharing
+
+The one deliberate exception to the gate above: clicking **Share** in the
+header makes the current board reachable at `/public/<slug>` — a read-only
+page with no login required, showing a rolling 12-month window (2 months
+before today through 9 months after). Boards are private until explicitly
+shared, and a board's slug is stable (kept even if you stop sharing it), so
+a link you've handed out keeps working if you re-share later. Use **Stop
+sharing** in the same menu to revoke access.
 
 ## Documentation
 

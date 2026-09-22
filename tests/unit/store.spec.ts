@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,6 +10,12 @@ beforeEach(async () => {
   originalEnv = process.env.NUXT_DATA_DIR
   dataDir = await mkdtemp(join(tmpdir(), 'waypoint-store-'))
   process.env.NUXT_DATA_DIR = dataDir
+  // store.ts caches its SQLite connection in a module-level singleton opened
+  // lazily on first use — re-importing the module (as every test below does)
+  // returns that same cached instance unless the module registry is reset,
+  // so without this every test after the first would silently keep reading
+  // and writing the *first* test's temp dir/database instead of its own.
+  vi.resetModules()
 })
 
 afterEach(async () => {
@@ -26,11 +32,14 @@ describe('store', () => {
     expect(board.activeThemeId).toBe('slate-amber')
   })
 
-  it('seeds default themes on first read', async () => {
+  it('seeds default themes on first read, including 4 built-in ones', async () => {
     const { readThemes } = await import('../../server/utils/store')
     const themes = await readThemes()
-    expect(themes.themes.length).toBeGreaterThanOrEqual(4)
-    expect(themes.themes.every((t) => t.builtIn)).toBe(true)
+    const builtIn = themes.themes.filter((t) => t.builtIn)
+    expect(builtIn.length).toBe(4)
+    // The seed data also ships extra non-built-in preset themes on top of
+    // those 4 — just assert they're at least present, not an exact count.
+    expect(themes.themes.length).toBeGreaterThanOrEqual(builtIn.length)
   })
 
   it('persists writes and can read them back', async () => {
@@ -40,30 +49,6 @@ describe('store', () => {
     await writeBoard(board)
     const reloaded = await readBoard()
     expect(reloaded.lanes[0].name).toBe('Renamed lane')
-  })
-
-  it('writes atomically leaving no stray temp files', async () => {
-    const { readBoard, writeBoard, readBoardsIndex } = await import('../../server/utils/store')
-    const board = await readBoard()
-    await writeBoard(board)
-    const index = await readBoardsIndex()
-    const { readdir } = await import('node:fs/promises')
-    const files = await readdir(join(dataDir, 'boards'))
-    expect(files.some((f) => f.endsWith('.tmp'))).toBe(false)
-    expect(files).toContain(`${index.activeBoardId}.json`)
-  })
-
-  it('creates a .bak backup of the previous version on write', async () => {
-    const { readBoard, writeBoard, readBoardsIndex } = await import('../../server/utils/store')
-    const board = await readBoard()
-    board.lanes[0].name = 'First change'
-    await writeBoard(board)
-    board.lanes[0].name = 'Second change'
-    await writeBoard(board)
-    const index = await readBoardsIndex()
-    const backupRaw = await readFile(join(dataDir, 'boards', `${index.activeBoardId}.json.bak`), 'utf-8')
-    const backup = JSON.parse(backupRaw)
-    expect(backup.lanes[0].name).toBe('First change')
   })
 
   it('serializes concurrent mutateBoard calls without losing updates', async () => {
@@ -120,16 +105,31 @@ describe('store', () => {
   })
 
   it('mutateBoard writes and reads isolated per-board data files', async () => {
-    const { mutateBoardsIndex, readBoard, writeBoard } = await import('../../server/utils/store')
+    const { mutateBoardsIndex, readBoard, writeBoard, readBoardsIndex } = await import('../../server/utils/store')
     const board = await readBoard()
     board.lanes[0].name = 'Board A lane'
     await writeBoard(board)
 
-    // Switch the active board id without a real second board file existing:
-    // writing/reading should now be scoped to the new (empty) board.
+    // loadBoardsIndex orders boards by createdAt, and `index.boards[0]` below
+    // is relied on to mean "board A" again after switching back — so the
+    // fake board's createdAt must sort strictly after board A's real one
+    // (an empty/equal timestamp previously let it sort first instead).
+    const boardACreatedAt = (await readBoardsIndex()).boards[0]!.createdAt
+    const laterCreatedAt = new Date(Date.parse(boardACreatedAt) + 1000).toISOString()
+
+    // Switch the active board id without a real second board's data
+    // existing: writing/reading should now be scoped to the new (empty) board.
     const { result: newId } = await mutateBoardsIndex((index) => {
       const id = 'board-b'
-      index.boards.push({ id, name: 'Board B', avatar: null, createdAt: '', updatedAt: '' })
+      index.boards.push({
+        id,
+        name: 'Board B',
+        avatar: null,
+        public: false,
+        slug: null,
+        createdAt: laterCreatedAt,
+        updatedAt: laterCreatedAt
+      })
       index.activeBoardId = id
       return id
     })

@@ -20,10 +20,12 @@ describe('computeDragResult', () => {
   })
 
   it('clamps a move at the end of the year', () => {
+    // Drag granularity is 1 week (1/4 month); the last week a 2-month task
+    // can start at without spilling past month 11 is 9.75, not the whole-month 9.
     const start: DragStartState = { mode: 'move', origStart: 9, origEnd: 11, origRow: 0 }
     const result = computeDragResult(start, 400, 0, geometry, noOverlap)
-    expect(result.start).toBe(9)
-    expect(result.end).toBe(11)
+    expect(result.start).toBe(9.75)
+    expect(result.end).toBe(11.75)
   })
 
   it('changes row on vertical drag, clamped to lane count', () => {
@@ -53,10 +55,10 @@ describe('computeDragResult', () => {
     expect(result.end).toBe(2)
   })
 
-  it('resize-right extends forward but not past 11', () => {
+  it('resize-right extends forward but not past 11.75 (last week of December)', () => {
     const start: DragStartState = { mode: 'resize-right', origStart: 2, origEnd: 4, origRow: 0 }
     const result = computeDragResult(start, 400, 0, geometry, noOverlap)
-    expect(result.end).toBe(11)
+    expect(result.end).toBe(11.75)
   })
 
   it('flags invalid when overlapping', () => {

@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Board, BoardData, BoardsIndex, Group, ThemesData } from '../../shared/types'
+import { Mutex } from './mutex'
 
 /**
  * Resolves the directory used to store the SQLite database file (and, for
@@ -700,15 +701,19 @@ export async function readBoardsIndex(): Promise<BoardsIndex> {
  * that depend on a board row it just added already existing in SQLite — use
  * `createBoard()` for board creation instead.
  */
+const boardsIndexMutex = new Mutex()
+
 export async function mutateBoardsIndex<T>(
   mutator: (index: BoardsIndex) => T | Promise<T>
 ): Promise<{ result: T; index: BoardsIndex }> {
-  const db = getDb()
-  const index = ensureBoardsIndex(db)
-  const result = await mutator(index)
-  const persist = db.transaction(() => saveBoardsIndex(db, index))
-  persist()
-  return { result, index }
+  return boardsIndexMutex.run(async () => {
+    const db = getDb()
+    const index = ensureBoardsIndex(db)
+    const result = await mutator(index)
+    const persist = db.transaction(() => saveBoardsIndex(db, index))
+    persist()
+    return { result, index }
+  })
 }
 
 async function resolveActiveBoardId(): Promise<string> {
@@ -818,17 +823,21 @@ export async function writeBoard(board: BoardData): Promise<void> {
   saveBoardData(db, boardId, board)
 }
 
+const boardMutex = new Mutex()
+
 /** Runs `mutator` with exclusive access to the active board's data, persisting the result. */
 export async function mutateBoard<T>(
   mutator: (board: BoardData) => T | Promise<T>
 ): Promise<{ result: T; board: BoardData }> {
-  const db = getDb()
-  const boardId = await resolveActiveBoardId()
-  const existing = loadBoardData(db, boardId) ?? createDefaultBoard()
-  const result = await mutator(existing)
-  const persist = db.transaction(() => saveBoardData(db, boardId, existing))
-  persist()
-  return { result, board: existing }
+  return boardMutex.run(async () => {
+    const db = getDb()
+    const boardId = await resolveActiveBoardId()
+    const existing = loadBoardData(db, boardId) ?? createDefaultBoard()
+    const result = await mutator(existing)
+    const persist = db.transaction(() => saveBoardData(db, boardId, existing))
+    persist()
+    return { result, board: existing }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -864,14 +873,18 @@ export async function writeThemes(themes: ThemesData): Promise<void> {
   saveThemesRow(getDb(), themes)
 }
 
+const themesMutex = new Mutex()
+
 /** Runs `mutator` with exclusive access to the themes row, persisting the result. */
 export async function mutateThemes<T>(
   mutator: (themes: ThemesData) => T | Promise<T>
 ): Promise<{ result: T; themes: ThemesData }> {
-  const db = getDb()
-  const existing = loadThemesRow(db) ?? createDefaultThemes()
-  const result = await mutator(existing)
-  const persist = db.transaction(() => saveThemesRow(db, existing))
-  persist()
-  return { result, themes: existing }
+  return themesMutex.run(async () => {
+    const db = getDb()
+    const existing = loadThemesRow(db) ?? createDefaultThemes()
+    const result = await mutator(existing)
+    const persist = db.transaction(() => saveThemesRow(db, existing))
+    persist()
+    return { result, themes: existing }
+  })
 }

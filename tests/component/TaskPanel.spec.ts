@@ -103,7 +103,10 @@ describe('TaskPanel', () => {
     store.groups = [{ id: 'g1', name: 'Group 1', order: 0 }]
     store.lanes = [{ id: 'l1', name: 'Lane 1', order: 0, groupId: 'g1' }]
     const wrapper = mountPanel('t1')
+    // Deleting is a two-step flow: the panel's own button opens a confirm
+    // dialog, and only that dialog's button actually deletes.
     await wrapper.find('.btn-delete').trigger('click')
+    await wrapper.find('.confirm-dialog .btn-delete').trigger('click')
     await Promise.resolve()
     expect(fetchMock).toHaveBeenCalledWith('/api/tasks/t1', expect.objectContaining({ method: 'DELETE' }))
     expect(wrapper.emitted('close')).toBeTruthy()

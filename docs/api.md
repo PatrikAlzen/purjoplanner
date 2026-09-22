@@ -1,6 +1,6 @@
 # API Reference
 
-All routes are Nitro server routes under `/api`, backed by the file-based JSON
+All routes are Nitro server routes under `/api`, backed by the SQLite-backed
 store in `server/utils/store.ts`. Request bodies are validated with Zod
 (`server/utils/validation.ts`); validation failures return `400` with a
 `message` describing the first Zod issue. All responses are JSON.
@@ -124,6 +124,55 @@ back to the default theme (`slate-amber`) automatically.
 
 - `404 Theme not found`.
 - `403 Built-in themes cannot be deleted`.
+
+## Public sharing
+
+A board can be shared read-only at `/public/<slug>` without going through the
+admin auth gate (see [architecture.md](./architecture.md#access-control)).
+
+### `POST /api/boards/:id/share`
+
+Makes the board public, assigning it a slug (derived from its name) on first
+share. Idempotent — sharing an already-public board returns it unchanged, and
+re-sharing one that was previously unshared reuses its existing slug rather
+than minting a new URL. Returns the updated `Board` (`{ ..., public: true,
+slug: string }`).
+
+- `404 Board not found`.
+
+### `POST /api/boards/:id/unshare`
+
+Revokes public access (`public: false`). The board keeps its slug, so sharing
+it again later restores the same `/public/<slug>` URL. Returns the updated
+`Board`.
+
+- `404 Board not found`.
+
+### `GET /api/public/boards/:slug`
+
+**Not behind the admin auth gate** — reachable by anyone with the link. Looks
+up a board by its public slug and, if it's currently shared, returns
+everything the read-only view needs:
+
+```ts
+{
+  board: { id: string, name: string }
+  theme: Theme
+  groups: Group[]
+  lanes: Lane[]
+  tasks: Task[]         // only tasks visible in the window below
+  anchorMonth: number   // absolute month index (year * 12 + month) the window starts at
+}
+```
+
+Only tasks that fall within the public rolling window are included: 2 months
+before the current date through 9 months after (the same 12-month window the
+admin board itself opens to by default).
+
+- `404 Board not found` — both when no board has that slug and when a board
+  has that slug but isn't currently public. The two cases aren't
+  distinguished in the response, so an unshared board's old slug isn't
+  probeable.
 
 ## `ThemeColors` shape
 

@@ -31,7 +31,9 @@ export const NORMAL_METRICS: BoardMetrics = {
   taskTop: 12
 }
 
-const COMPACT: BoardMetrics = {
+// Also exported: the public read-only board view defaults to compact
+// regardless of any admin's saved preference (see PublicRoadmapBoard.vue).
+export const COMPACT_METRICS: BoardMetrics = {
   laneHeight: 36,
   groupHeaderHeight: 26,
   groupGap: 8,
@@ -54,7 +56,7 @@ export function metricsToCssVars(metrics: BoardMetrics): Record<string, string> 
 export function useCompactMode() {
   const uiStore = useUiStore()
 
-  const metrics = computed<BoardMetrics>(() => (uiStore.compact ? COMPACT : NORMAL_METRICS))
+  const metrics = computed<BoardMetrics>(() => (uiStore.compact ? COMPACT_METRICS : NORMAL_METRICS))
   const cssVars = computed<Record<string, string>>(() => metricsToCssVars(metrics.value))
 
   return {

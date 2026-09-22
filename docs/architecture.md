@@ -2,15 +2,15 @@
 
 Purjoplanner is a Nuxt 4 application (Vue 3 + Nitro) for planning a year-long,
 month-by-month roadmap of draggable/resizable tasks ("sausages") grouped into
-lanes, with a file-based JSON backend and a fully customizable theming system.
+lanes, with an embedded SQLite backend and a fully customizable theming system.
 
 ## High-level layers
 
 ```
 app/            Nuxt "app" directory (Vue components, pages, stores, composables)
 shared/         Domain types + pure logic shared between client and server (#shared alias)
-server/         Nitro API routes + business logic + file-based storage engine
-data/           Runtime JSON storage (board.json, themes.json, backups) — gitignored
+server/         Nitro API routes + business logic + SQLite storage engine
+data/           Runtime SQLite database (app.db) — gitignored
 tests/          unit, component, api (integration), and e2e (Playwright) tests
 ```
 
@@ -33,20 +33,31 @@ tests/          unit, component, api (integration), and e2e (Playwright) tests
 
 ## Persistence (`server/utils/store.ts`)
 
-- Two JSON files: `data/board.json` (`{ version, lanes, tasks, activeThemeId }`)
-  and `data/themes.json` (`{ version, themes }`).
+- A single SQLite database (`app.db`, via `better-sqlite3`, WAL mode): a
+  `boards` table (metadata — name, avatar, public/slug, timestamps), a
+  `board_data` row per board (`{ version, groups, lanes, tasks,
+  activeThemeId }` as JSON), and a `themes` row (`{ version, themes }` as
+  JSON). Schema changes are additive (`ALTER TABLE ... ADD COLUMN`, guarded by
+  a `PRAGMA table_info` check) so existing databases upgrade in place.
 - The directory is configurable via the `NUXT_DATA_DIR` environment variable
   (see `nuxt.config.ts` → `runtimeConfig.dataDir`), which is what the
   Playwright E2E config and tests use to keep test data isolated from local
   dev data.
-- Every read auto-seeds default data (3 lanes, 4 built-in themes) if the file
-  doesn't exist yet.
-- Every write is **atomic**: content is written to a temp file, then
-  `rename()`'d over the target (so a crash mid-write can't corrupt the file),
-  and a `.bak` copy of the previous version is kept alongside it.
-- Reads/writes to a given file are serialized behind an in-process async
-  mutex (`mutateBoard`/`mutateThemes`) to avoid lost updates from concurrent
-  requests within the same server process.
+- Every read auto-seeds default data (3 lanes, 4 built-in themes plus extra
+  non-built-in presets) if the database is empty. A one-time migration
+  (`migrateLegacyFilesIfPresent`) imports data from the older JSON-file
+  layout (`board.json`/`boards.json`/`themes.json`) if it finds one and the
+  database is otherwise empty — safe to leave in permanently, since it's a
+  no-op once the `boards` table has any rows.
+- Durability is SQLite's own (WAL journaling), not app-level temp-file+rename
+  tricks — there's no `.bak` copy of previous data the way the old JSON-file
+  store had.
+- `mutateBoard`/`mutateBoardsIndex`/`mutateThemes` each serialize their own
+  read-modify-write cycle behind an in-process `Mutex` (`server/utils/mutex.ts`)
+  so concurrent requests targeting the same board/index/themes row can't
+  race — one reads stale data, applies its change, and overwrites the other's
+  write. SQLite's transactions alone don't prevent this: they make the final
+  write atomic, but not the read that preceded it.
 
 ## Collision detection (`shared/collision.ts`)
 
@@ -74,9 +85,47 @@ their identity as headers. There is currently no non-admin role — every route
   `401`. Identity present but no matching group → `403`.
 - `/_nuxt/*`, `/favicon.*` and `/robots.txt` are excluded so Nuxt's own error
   page can still render its assets when a request is rejected.
+- `/public/*` and `/api/public/*` are also excluded — deliberately, not as a
+  gap. A board only becomes reachable there once explicitly shared (see
+  below); the bypass is on the route, not on which boards it can serve.
 
 See the README's "Access control" section for the env vars and how to
 exercise this locally without F5 in front of it.
+
+## Public board sharing (`app/pages/public/[slug].vue`)
+
+Each board can be shared as a read-only, unauthenticated page at
+`/public/<slug>` — the one deliberate hole in the admin-only gate above.
+
+- **Data model**: `Board` gained `public: boolean` and `slug: string | null`
+  (`server/utils/store.ts`; SQLite migration adds the columns to existing
+  `boards` tables). A board is private (`public: false`, `slug: null`) until
+  first shared. `shareBoard`/`unshareBoard` in `board-service.ts` toggle
+  `public`; the slug, once assigned (`server/utils/slug.ts`, deduped via a
+  `-2`/`-3`/… suffix), is kept even after unsharing so re-sharing later
+  restores the same URL.
+- **Rolling window, not the admin's calendar-year grid**: `shared/window.ts`'s
+  `taskViewSpan`/`publicAnchorMonth` (also used by `RoadmapBoard.vue` for the
+  admin board's own sliding window) clip tasks into a 12-month window 2
+  months before today through 9 months after. `GET /api/public/boards/:slug`
+  (`board-service.ts`'s `getPublicBoardView`) applies this server-side, so
+  only in-window tasks are ever sent to an anonymous viewer.
+  ("`shared/`" here really is shared: this filtering logic runs both in the
+  server route and, redundantly but cheaply, again in the page component to
+  clip each task's on-screen position.)
+- **Rendering**: `PublicRoadmapBoard.vue` is a trimmed, drag-free sibling of
+  `RoadmapBoard.vue` — no Pinia store, no mutation, no add/remove/rename
+  affordances. It reuses `MonthHeader`/`TodayMarker` as-is (already pure
+  presentation) and `Group`/`Lane`/`TaskPill` via a `readonly` prop that hides
+  their edit/drag affordances rather than duplicating those components.
+- **Isolation from the admin app**: the page sets
+  `definePageMeta({ public: true })`; `app.vue`'s `onMounted` checks
+  `route.meta.public` and skips loading the admin-only board/boards/theme
+  Pinia stores on this route, since those hit gated endpoints a public
+  visitor's request wouldn't pass.
+- **Share button**: `ShareButton.vue` (wired into `TopBar.vue`'s `#share`
+  slot) calls `shareBoard`/`unshareBoard` on the `boards` Pinia store and
+  copies the resulting `/public/<slug>` URL via the clipboard API.
 
 ## Drag & resize (`app/composables/useDrag.ts`)
 

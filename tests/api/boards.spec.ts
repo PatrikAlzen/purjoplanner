@@ -61,9 +61,11 @@ describe('boards API', () => {
     const initial = await authedFetch('/api/boards')
     const boardA = initial.activeBoardId
 
+    // Creating a board makes it active immediately, so switch back to A
+    // before adding a lane meant to belong only to A.
     const boardB = await authedFetch('/api/boards', { method: 'POST', body: { name: 'Board B' } })
+    await authedFetch('/api/boards/active', { method: 'POST', body: { boardId: boardA } })
 
-    // Add a lane while board A is active.
     const boardABefore = await authedFetch('/api/board')
     await authedFetch('/api/lanes', { method: 'POST', body: { name: 'Lane on A', groupId: boardABefore.groups[0].id } })
 

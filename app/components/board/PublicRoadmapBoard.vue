@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { taskViewSpan } from '#shared/window'
-import { NORMAL_METRICS, metricsToCssVars } from '../../composables/useCompactMode'
+import { COMPACT_METRICS, metricsToCssVars } from '../../composables/useCompactMode'
 import type { Group, Lane, Task } from '#shared/types'
 
 const props = defineProps<{
@@ -11,7 +11,9 @@ const props = defineProps<{
   anchorMonth: number
 }>()
 
-const cssVars = metricsToCssVars(NORMAL_METRICS)
+// Public read-only view always defaults to compact, regardless of what any
+// admin has toggled locally — there's no toggle exposed here to change it.
+const cssVars = metricsToCssVars(COMPACT_METRICS)
 
 const sortedGroups = computed(() => [...props.groups].sort((a, b) => a.order - b.order))
 const sortedLanes = computed(() => {
