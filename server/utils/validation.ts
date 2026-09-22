@@ -3,10 +3,13 @@ import { z } from 'zod'
 const hexColor = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 const looksLikeUrl = /^(https?:\/\/|\/|#)[^\s]*$/i
 
-const monthIndex = z.number().min(0).max(11)
-// A task's `end` may spill into the following year (12-23 = Jan-Dec of year+1),
-// allowing a task to span exactly one year boundary.
-const endMonthIndex = z.number().min(0).max(23)
+// Month position is continuous (drag granularity is 1 week = 1/4 month), so
+// the upper bound must be exclusive: e.g. 11.75 (last week of December) is a
+// valid `start`, but 12 itself belongs to January of the following year.
+const monthIndex = z.number().min(0).lt(12)
+// A task's `end` may spill into the following year (12-23.99.. = Jan-Dec of
+// year+1), allowing a task to span exactly one year boundary.
+const endMonthIndex = z.number().min(0).lt(24)
 const linkField = z
   .string()
   .max(2000)

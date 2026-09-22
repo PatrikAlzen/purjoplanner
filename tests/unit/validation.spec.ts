@@ -36,6 +36,11 @@ describe('taskCreateSchema', () => {
     expect(() => taskCreateSchema.parse({ ...valid, start: 0, end: 23 })).not.toThrow()
   })
 
+  it('accepts fractional (week-granularity) start/end positions within the last month of a year', () => {
+    expect(() => taskCreateSchema.parse({ ...valid, start: 11.25, end: 11.75 })).not.toThrow()
+    expect(() => taskCreateSchema.parse({ ...valid, start: 0, end: 23.75 })).not.toThrow()
+  })
+
   it('rejects an invalid color', () => {
     expect(() => taskCreateSchema.parse({ ...valid, color: 'orange' })).toThrow()
   })
