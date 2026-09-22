@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { GROUP_DRAG_MIME } from '../../utils/dnd'
 
 const props = withDefaults(
@@ -59,6 +59,19 @@ function onDragOver(e: DragEvent) {
 function onDragLeave() {
   dragOverPosition.value = null
 }
+
+// `dragleave` is unreliable as the only way to clear this: it also fires
+// when the pointer moves onto a child element (the track, a task pill, ...),
+// and can be skipped entirely if the drag ends via a drop elsewhere or a
+// cancel (Escape / dropping outside any valid target) — either way leaving
+// this lane's insertion line stuck showing. `dragend` bubbles from the
+// dragged element and is guaranteed to fire exactly once per drag gesture
+// regardless of how it ends, so use it as a global backstop.
+function resetDragOver() {
+  dragOverPosition.value = null
+}
+onMounted(() => window.addEventListener('dragend', resetDragOver))
+onUnmounted(() => window.removeEventListener('dragend', resetDragOver))
 
 function onDrop(e: DragEvent) {
   if (props.readonly || isGroupDrag(e)) return

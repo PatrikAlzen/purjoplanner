@@ -78,4 +78,23 @@ describe('Group', () => {
     await wrapper.trigger('drop', { dataTransfer })
     expect(wrapper.emitted('group-drop')).toBeFalsy()
   })
+
+  it('clears a stuck drag-over indicator on a global dragend, even without its own dragleave/drop', async () => {
+    // Regression: dragleave doesn't reliably fire (it also fires when the
+    // pointer moves onto a child element, and can be skipped entirely if the
+    // drag ends via a drop elsewhere or a cancel), which used to leave this
+    // card tinted/the insertion line stuck showing indefinitely.
+    const wrapper = mount(Group, { props: { groupId: 'g2', name: 'Group 2', canRemove: true, laneCount: 0 } })
+    wrapper.element.getBoundingClientRect = () => ({ top: 0, height: 100 }) as DOMRect
+    const dataTransfer = { types: ['application/x-purjo-group'] }
+    await wrapper.trigger('dragover', { dataTransfer, clientY: 0 })
+    expect(wrapper.classes()).toContain('drag-over')
+    expect(wrapper.classes()).toContain('drag-over-before')
+
+    window.dispatchEvent(new Event('dragend'))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.classes()).not.toContain('drag-over')
+    expect(wrapper.classes()).not.toContain('drag-over-before')
+    expect(wrapper.classes()).not.toContain('drag-over-after')
+  })
 })

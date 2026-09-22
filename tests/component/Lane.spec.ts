@@ -81,4 +81,21 @@ describe('Lane', () => {
     await wrapper.trigger('drop', { dataTransfer })
     expect(wrapper.emitted('lane-drop')).toBeFalsy()
   })
+
+  it('clears a stuck drag-over indicator on a global dragend, even without its own dragleave/drop', async () => {
+    // Regression: dragleave doesn't reliably fire (it also fires when the
+    // pointer moves onto a child element, and can be skipped entirely if the
+    // drag ends via a drop elsewhere or a cancel), which used to leave this
+    // insertion line stuck showing indefinitely.
+    const wrapper = mount(Lane, { props: { laneId: 'l2', name: 'Lane 2', canRemove: true, even: false } })
+    wrapper.element.getBoundingClientRect = () => ({ top: 0, height: 100 }) as DOMRect
+    const dataTransfer = { types: [] as string[] }
+    await wrapper.trigger('dragover', { dataTransfer, clientY: 0 })
+    expect(wrapper.classes()).toContain('drag-over-before')
+
+    window.dispatchEvent(new Event('dragend'))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.classes()).not.toContain('drag-over-before')
+    expect(wrapper.classes()).not.toContain('drag-over-after')
+  })
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { GROUP_DRAG_MIME } from '../../utils/dnd'
 
 const props = withDefaults(
@@ -94,6 +94,17 @@ function onDragLeave() {
   dragOver.value = false
   dragOverPosition.value = null
 }
+
+// See the identical comment in Lane.vue: `dragleave` alone is unreliable
+// (fires on every child-element boundary crossing, and can be skipped
+// entirely if the drag ends via a drop elsewhere or a cancel), so also
+// clear this on the drag gesture's guaranteed, exactly-once `dragend`.
+function resetDragOver() {
+  dragOver.value = false
+  dragOverPosition.value = null
+}
+onMounted(() => window.addEventListener('dragend', resetDragOver))
+onUnmounted(() => window.removeEventListener('dragend', resetDragOver))
 
 function onDrop(e: DragEvent) {
   if (props.readonly) return
