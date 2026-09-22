@@ -10,7 +10,6 @@ const emit = defineEmits<{
   (e: 'prev-month'): void
   (e: 'next-month'): void
   (e: 'jump-to-today'): void
-  (e: 'new-task'): void
 }>()
 
 const rangeLabel = computed(() => `${monthLabel(props.anchorMonth)} – ${monthLabel(props.anchorMonth + 11)}`)
@@ -32,8 +31,6 @@ const isAtToday = computed(() => props.anchorMonth === defaultAnchorMonth())
     <slot name="compact-toggle" />
     <slot name="theme-picker" />
     <slot name="share" />
-    <span class="hint">Drag a task to move it, or drag its edges to resize.</span>
-    <button class="btn-primary" @click="emit('new-task')">+ New task</button>
   </div>
 </template>
 
@@ -100,24 +97,5 @@ const isAtToday = computed(() => props.anchorMonth === defaultAnchorMonth())
 }
 .spacer {
   flex: 1;
-}
-.hint {
-  font-size: 13px;
-  color: rgba(237, 239, 230, 0.6);
-  margin-right: 4px;
-}
-.btn-primary {
-  background: var(--accent);
-  color: #2b1b02;
-  border: none;
-  padding: 9px 16px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  font-family: 'Space Grotesk', sans-serif;
-}
-.btn-primary:hover {
-  filter: brightness(1.06);
 }
 </style>

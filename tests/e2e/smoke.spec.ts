@@ -9,8 +9,12 @@ test.describe('PurjoPlanner roadmap planner smoke test', () => {
     // Wait for hydration + initial board data load to finish before interacting.
     await expect(page.locator('.lane-label input').first()).toHaveValue(/.+/)
 
-    // Create a new task via the "+ New task" button.
-    await page.getByRole('button', { name: '+ New task' }).click()
+    // Create a new task by hovering an empty week slice of the first lane
+    // (shows a "+" hint) and clicking it.
+    const firstLaneTrack = page.locator('.lane-track').first()
+    await firstLaneTrack.hover({ position: { x: 20, y: 20 } })
+    await expect(firstLaneTrack.locator('.add-hint')).toBeVisible()
+    await firstLaneTrack.click({ position: { x: 20, y: 20 } })
 
     const panel = page.locator('.panel.open')
     await expect(panel).toBeVisible()

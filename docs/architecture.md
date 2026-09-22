@@ -180,6 +180,44 @@ raw Pointer Events to closely match the mockup's vanilla-JS interaction model:
 - A drag that ends without meaningful movement is treated as a **click**,
   which opens the `TaskPanel` for that task instead of committing a move.
 
+## Click-to-add (`app/components/board/AddTaskZone.vue`)
+
+There's no standalone "+ New task" button — creating a task is done by
+hovering an empty week-slice of a lane (a "+" hint appears) and clicking it.
+
+- `AddTaskZone` is a full-width, full-height, absolutely-positioned layer
+  rendered as the *first* child inside each `Lane`'s slot in
+  `RoadmapBoard.vue`, i.e. underneath `TodayMarker`/`TaskPill` in paint order.
+  It tracks `pointermove`/`pointerleave` over itself to show a "+" at
+  whichever week is under the cursor, and emits `add` with that week position
+  on click.
+- **It relies on normal DOM stacking, not on computing occupancy itself.**
+  Because `TaskPill`s paint on top of it and aren't `pointer-events: none`,
+  hovering/clicking over an existing task is captured by that task's pill
+  first and never reaches the zone underneath — so the "+" can only ever
+  appear over pixels that are genuinely free, with no need to duplicate
+  `hasOverlap`-style collision math just to decide where to show it.
+- `RoadmapBoard.vue`'s `addTaskAt(laneId, week)` handles the emitted `add`:
+  converts the window-relative `week` to an absolute month via
+  `anchorMonth`, creates a task there via the board store (same default
+  1-month-longer size the old button used), and emits `open-task` to open the
+  panel on it — mirroring the old button's "create immediately, then let the
+  user fill in details" flow, just anchored to a specific lane/week instead
+  of "wherever there's room."
+- Two things the DOM-stacking trick above doesn't cover on its own: the
+  *default* duration can still run into a later task in the same lane
+  (`addTaskAt` clamps `end` to whatever room is actually free ahead, rather
+  than let the create 409), and there's a defensive `isOverlapping` check
+  against the exact hovered point as a backstop against the stacking
+  assumption ever being wrong (e.g. a future change making a pill
+  `pointer-events: none`) — cheap to check, and quieter than a raw 409 would
+  be if it ever fired.
+- Trade-off worth knowing: this removed the only *keyboard*-accessible way to
+  create a task (the old button was a real, tabbable `<button>`). Hovering a
+  specific week has no keyboard equivalent yet — see the "Keyboard-accessible
+  drag" item in `research.md` §13, which would need to solve a similar
+  problem (picking a week without a pointer).
+
 ## Theming (`app/composables/useTheme.ts`)
 
 Each theme is a flat set of named colors (`Theme.colors`) plus an ordered

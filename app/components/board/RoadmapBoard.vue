@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useBoard } from '../../composables/useBoard'
-import { useDrag, type DragMode, type DragResult } from '../../composables/useDrag'
+import { useDrag, WEEKS_PER_MONTH, type DragMode, type DragResult } from '../../composables/useDrag'
 import { useCompactMode } from '../../composables/useCompactMode'
-import { taskViewSpan } from '#shared/window'
+import { taskViewSpan, absoluteRange } from '#shared/window'
 import type { Task } from '#shared/types'
+
+const STEP_MONTHS = 1 / WEEKS_PER_MONTH
+const NEW_TASK_PALETTE = ['#DF9438', '#2F8F8B', '#C9584A', '#5B6EE1', '#6B8F47', '#8B5FBF', '#5A6B7A', '#C6689A']
 
 const props = defineProps<{
   anchorMonth: number
@@ -172,6 +175,38 @@ function tasksForRow(rowIndex: number): Task[] {
   })
 }
 
+// --- Click-to-add (AddTaskZone) ------------------------------------------
+// AddTaskZone only shows its "+" over pixels not already covered by a task
+// pill (pills paint on top and intercept the pointer there first), so in
+// normal use the exact hovered week is always free. The guard below is a
+// defensive backstop for that assumption rather than something normal
+// hovering can trigger — cheap to check, and the alternative (a raw 409 from
+// the API) would be a confusing way to find out the assumption broke.
+function addTaskAt(laneId: string, week: number) {
+  const absStart = props.anchorMonth + week
+  const { year: pointYear, start: pointStart } = toStorage(absStart, absStart)
+  if (isOverlapping(laneId, pointYear, pointStart, pointStart)) return
+
+  // The *default* 1-month-longer task can still run into a later task in the
+  // same lane — clamp `end` to whatever room is actually free ahead, rather
+  // than let the create 409.
+  let absEnd = absStart + 1
+  for (const task of store.tasks) {
+    if (task.laneId !== laneId) continue
+    const { absStart: otherStart } = absoluteRange(task)
+    if (otherStart > absStart && otherStart - STEP_MONTHS < absEnd) {
+      absEnd = otherStart - STEP_MONTHS
+    }
+  }
+  absEnd = Math.max(absStart, absEnd)
+  const { year, start, end } = toStorage(absStart, absEnd)
+  const color = NEW_TASK_PALETTE[store.tasks.length % NEW_TASK_PALETTE.length]!
+  store
+    .createTask({ name: 'New task', color, laneId, start, end, year })
+    .then((task) => emit('open-task', task.id))
+    .catch(() => {})
+}
+
 // --- Lane management -----------------------------------------------------
 async function renameLane(laneId: string, name: string) {
   await store.renameLane(laneId, name)
@@ -306,6 +341,7 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
           @lane-drag-end="onLaneDragEnd"
           @lane-drop="(payload) => onLaneDrop(group.id, lane.id, payload)"
         >
+          <AddTaskZone :month-width="monthWidth" @add="(week) => addTaskAt(lane.id, week)" />
           <TodayMarker
             v-if="rowIndexForLane(lane.id) === 0"
             :anchor-month="anchorMonth"
