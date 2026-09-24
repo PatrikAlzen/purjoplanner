@@ -27,6 +27,15 @@ Built with Nuxt 4 (Vue 3 + Nitro), Pinia, and Zod. See
 
 ## Setup
 
+Requires **Node.js 22.5 or later** — storage uses Node's built-in
+[`node:sqlite`](https://nodejs.org/api/sqlite.html) module rather than a
+native npm package, specifically to avoid the "works locally, fails in
+production" class of problems a compiled native addon can hit (wrong Node
+ABI, missing prebuilt binary for your platform/libc, no compiler toolchain
+to build from source). It's still marked `Experimental` by Node as of
+writing — that's a stability label, not a flag requirement; no
+`--experimental-sqlite` flag is needed on Node 22.5+.
+
 Install dependencies:
 
 ```bash

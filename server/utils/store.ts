@@ -1,9 +1,29 @@
-import Database from 'better-sqlite3'
-import { mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs'
-import { join, basename } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { mkdirSync, readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Board, BoardData, BoardsIndex, Group, ThemesData } from '../../shared/types'
 import { Mutex } from './mutex'
+
+/**
+ * `DatabaseSync` has no `db.transaction(fn)` sugar the way better-sqlite3
+ * did, so this replaces every `db.transaction(fn); fn()` pattern below with
+ * an explicit BEGIN/COMMIT/ROLLBACK. `node:sqlite`'s synchronous API is
+ * otherwise a near drop-in match (including `@name`-style bound parameters
+ * from a plain object), which is why this is the only real structural
+ * change the port needed here.
+ */
+function withTransaction<T>(db: DatabaseSync, fn: () => T): T {
+  db.exec('BEGIN')
+  try {
+    const result = fn()
+    db.exec('COMMIT')
+    return result
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+}
 
 /**
  * Resolves the directory used to store the SQLite database file (and, for
@@ -496,14 +516,13 @@ function fromBoardRow(row: Record<string, unknown>): Board {
 // Database bootstrap
 // ---------------------------------------------------------------------------
 
-let _db: Database.Database | null = null
+let _db: DatabaseSync | null = null
 
-function openDb(): Database.Database {
+function openDb(): DatabaseSync {
   const dir = getDataDir()
   mkdirSync(dir, { recursive: true })
-  const db = new Database(join(dir, DB_FILE))
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
+  const db = new DatabaseSync(join(dir, DB_FILE), { enableForeignKeyConstraints: true })
+  db.exec('PRAGMA journal_mode = WAL')
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS boards (
@@ -538,7 +557,7 @@ function openDb(): Database.Database {
   return db
 }
 
-function getDb(): Database.Database {
+function getDb(): DatabaseSync {
   if (!_db) _db = openDb()
   return _db
 }
@@ -550,7 +569,7 @@ function getDb(): Database.Database {
  * `public` columns (and the slug uniqueness index) added explicitly here.
  * Safe to run on every startup: each step is a no-op once already applied.
  */
-function migrateBoardsTableColumns(db: Database.Database): void {
+function migrateBoardsTableColumns(db: DatabaseSync): void {
   const columns = db.prepare('PRAGMA table_info(boards)').all() as { name: string }[]
   const names = new Set(columns.map((c) => c.name))
   if (!names.has('slug')) db.exec('ALTER TABLE boards ADD COLUMN slug TEXT')
@@ -564,7 +583,7 @@ function migrateBoardsTableColumns(db: Database.Database): void {
 // it's a no-op once the `boards` table has any rows.
 // ---------------------------------------------------------------------------
 
-function migrateLegacyFilesIfPresent(db: Database.Database, dir: string): void {
+function migrateLegacyFilesIfPresent(db: DatabaseSync, dir: string): void {
   const boardCount = (db.prepare('SELECT COUNT(*) as c FROM boards').get() as { c: number }).c
   if (boardCount > 0) return // already has data, nothing to migrate
 
@@ -592,28 +611,32 @@ function migrateLegacyFilesIfPresent(db: Database.Database, dir: string): void {
     `INSERT INTO themes (id, data) VALUES (${THEMES_ROW_ID}, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`
   )
 
-  const importFromMultiBoardLayout = db.transaction(() => {
-    const index = readJsonSafe<BoardsIndex>(boardsIndexPath)!
-    for (const board of index.boards) {
-      // Legacy boards.json predates public sharing, so backfill the new
-      // fields rather than assuming they're present.
-      insertBoard.run(toBoardRow({ ...board, public: board.public ?? false, slug: board.slug ?? null }))
-      if (existsSync(boardsDir)) {
-        const dataPath = join(boardsDir, `${board.id}.json`)
-        const data = readJsonSafe<BoardData>(dataPath) ?? createDefaultBoard()
-        insertBoardData.run(board.id, JSON.stringify(data))
+  function importFromMultiBoardLayout() {
+    withTransaction(db, () => {
+      const index = readJsonSafe<BoardsIndex>(boardsIndexPath)!
+      for (const board of index.boards) {
+        // Legacy boards.json predates public sharing, so backfill the new
+        // fields rather than assuming they're present.
+        insertBoard.run(toBoardRow({ ...board, public: board.public ?? false, slug: board.slug ?? null }))
+        if (existsSync(boardsDir)) {
+          const dataPath = join(boardsDir, `${board.id}.json`)
+          const data = readJsonSafe<BoardData>(dataPath) ?? createDefaultBoard()
+          insertBoardData.run(board.id, JSON.stringify(data))
+        }
       }
-    }
-    setSetting.run(ACTIVE_BOARD_KEY, index.activeBoardId)
-  })
+      setSetting.run(ACTIVE_BOARD_KEY, index.activeBoardId)
+    })
+  }
 
-  const importFromLegacySingleBoard = db.transaction(() => {
-    const legacyBoard = readJsonSafe<BoardData>(legacyBoardPath) ?? createDefaultBoard()
-    const id = randomUUID()
-    insertBoard.run(toBoardRow(createBoardMeta(id, DEFAULT_BOARD_NAME)))
-    insertBoardData.run(id, JSON.stringify(legacyBoard))
-    setSetting.run(ACTIVE_BOARD_KEY, id)
-  })
+  function importFromLegacySingleBoard() {
+    withTransaction(db, () => {
+      const legacyBoard = readJsonSafe<BoardData>(legacyBoardPath) ?? createDefaultBoard()
+      const id = randomUUID()
+      insertBoard.run(toBoardRow(createBoardMeta(id, DEFAULT_BOARD_NAME)))
+      insertBoardData.run(id, JSON.stringify(legacyBoard))
+      setSetting.run(ACTIVE_BOARD_KEY, id)
+    })
+  }
 
   if (existsSync(boardsIndexPath)) {
     importFromMultiBoardLayout()
@@ -629,7 +652,7 @@ function migrateLegacyFilesIfPresent(db: Database.Database, dir: string): void {
 // Boards index
 // ---------------------------------------------------------------------------
 
-function loadBoardsIndex(db: Database.Database): BoardsIndex {
+function loadBoardsIndex(db: DatabaseSync): BoardsIndex {
   const rows = db
     .prepare('SELECT id, name, avatar, slug, public, createdAt, updatedAt FROM boards ORDER BY createdAt ASC')
     .all() as Record<string, unknown>[]
@@ -640,7 +663,7 @@ function loadBoardsIndex(db: Database.Database): BoardsIndex {
   return { version: 1, boards, activeBoardId: activeRow?.value ?? '' }
 }
 
-function saveBoardsIndex(db: Database.Database, index: BoardsIndex): void {
+function saveBoardsIndex(db: DatabaseSync, index: BoardsIndex): void {
   const upsertBoard = db.prepare(`
     INSERT INTO boards (id, name, avatar, slug, public, createdAt, updatedAt)
     VALUES (@id, @name, @avatar, @slug, @public, @createdAt, @updatedAt)
@@ -666,11 +689,11 @@ function saveBoardsIndex(db: Database.Database, index: BoardsIndex): void {
   ).run(ACTIVE_BOARD_KEY, index.activeBoardId)
 }
 
-function ensureBoardsIndex(db: Database.Database): BoardsIndex {
+function ensureBoardsIndex(db: DatabaseSync): BoardsIndex {
   const count = (db.prepare('SELECT COUNT(*) as c FROM boards').get() as { c: number }).c
   if (count > 0) return loadBoardsIndex(db)
 
-  const seedDefaultBoard = db.transaction(() => {
+  withTransaction(db, () => {
     const id = randomUUID()
     db.prepare(
       'INSERT INTO boards (id, name, avatar, createdAt, updatedAt) VALUES (?, ?, NULL, ?, ?)'
@@ -683,7 +706,6 @@ function ensureBoardsIndex(db: Database.Database): BoardsIndex {
       "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
     ).run(ACTIVE_BOARD_KEY, id)
   })
-  seedDefaultBoard()
 
   return loadBoardsIndex(db)
 }
@@ -710,8 +732,7 @@ export async function mutateBoardsIndex<T>(
     const db = getDb()
     const index = ensureBoardsIndex(db)
     const result = await mutator(index)
-    const persist = db.transaction(() => saveBoardsIndex(db, index))
-    persist()
+    withTransaction(db, () => saveBoardsIndex(db, index))
     return { result, index }
   })
 }
@@ -740,10 +761,15 @@ export async function createEmptyBoard(
   const db = getDb()
   const board = createBoardMeta(randomUUID(), name)
 
-  const run = db.transaction(() => {
+  withTransaction(db, () => {
+    // Bind all of `board`'s fields (via `toBoardRow`, matching the other two
+    // `INSERT INTO boards` statements) rather than just the 5 this used to
+    // list: `node:sqlite`, unlike better-sqlite3, throws on a bound object
+    // with keys the SQL doesn't reference (`public`/`slug` here).
     db.prepare(
-      'INSERT INTO boards (id, name, avatar, createdAt, updatedAt) VALUES (@id, @name, @avatar, @createdAt, @updatedAt)'
-    ).run(board)
+      `INSERT INTO boards (id, name, avatar, slug, public, createdAt, updatedAt)
+       VALUES (@id, @name, @avatar, @slug, @public, @createdAt, @updatedAt)`
+    ).run(toBoardRow(board))
     db.prepare('INSERT INTO board_data (boardId, data) VALUES (?, ?)').run(
       board.id,
       JSON.stringify(createDefaultBoard())
@@ -754,7 +780,6 @@ export async function createEmptyBoard(
       ).run(ACTIVE_BOARD_KEY, board.id)
     }
   })
-  run()
 
   return { board, index: loadBoardsIndex(db) }
 }
@@ -778,7 +803,7 @@ export async function deleteBoardDataFile(boardId: string): Promise<void> {
 // Active board data
 // ---------------------------------------------------------------------------
 
-function loadBoardData(db: Database.Database, boardId: string): BoardData | undefined {
+function loadBoardData(db: DatabaseSync, boardId: string): BoardData | undefined {
   const row = db.prepare('SELECT data FROM board_data WHERE boardId = ?').get(boardId) as
     | { data: string }
     | undefined
@@ -789,7 +814,7 @@ function loadBoardData(db: Database.Database, boardId: string): BoardData | unde
   return data
 }
 
-function saveBoardData(db: Database.Database, boardId: string, data: BoardData): void {
+function saveBoardData(db: DatabaseSync, boardId: string, data: BoardData): void {
   db.prepare(
     `INSERT INTO board_data (boardId, data) VALUES (?, ?)
      ON CONFLICT(boardId) DO UPDATE SET data = excluded.data`
@@ -834,8 +859,7 @@ export async function mutateBoard<T>(
     const boardId = await resolveActiveBoardId()
     const existing = loadBoardData(db, boardId) ?? createDefaultBoard()
     const result = await mutator(existing)
-    const persist = db.transaction(() => saveBoardData(db, boardId, existing))
-    persist()
+    withTransaction(db, () => saveBoardData(db, boardId, existing))
     return { result, board: existing }
   })
 }
@@ -844,14 +868,14 @@ export async function mutateBoard<T>(
 // Themes
 // ---------------------------------------------------------------------------
 
-function loadThemesRow(db: Database.Database): ThemesData | undefined {
+function loadThemesRow(db: DatabaseSync): ThemesData | undefined {
   const row = db.prepare('SELECT data FROM themes WHERE id = ?').get(THEMES_ROW_ID) as
     | { data: string }
     | undefined
   return row ? (JSON.parse(row.data) as ThemesData) : undefined
 }
 
-function saveThemesRow(db: Database.Database, themes: ThemesData): void {
+function saveThemesRow(db: DatabaseSync, themes: ThemesData): void {
   db.prepare(
     `INSERT INTO themes (id, data) VALUES (${THEMES_ROW_ID}, ?)
      ON CONFLICT(id) DO UPDATE SET data = excluded.data`
@@ -883,8 +907,7 @@ export async function mutateThemes<T>(
     const db = getDb()
     const existing = loadThemesRow(db) ?? createDefaultThemes()
     const result = await mutator(existing)
-    const persist = db.transaction(() => saveThemesRow(db, existing))
-    persist()
+    withTransaction(db, () => saveThemesRow(db, existing))
     return { result, themes: existing }
   })
 }

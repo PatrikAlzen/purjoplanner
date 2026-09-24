@@ -33,12 +33,28 @@ tests/          unit, component, api (integration), and e2e (Playwright) tests
 
 ## Persistence (`server/utils/store.ts`)
 
-- A single SQLite database (`app.db`, via `better-sqlite3`, WAL mode): a
-  `boards` table (metadata — name, avatar, public/slug, timestamps), a
-  `board_data` row per board (`{ version, groups, lanes, tasks,
-  activeThemeId }` as JSON), and a `themes` row (`{ version, themes }` as
-  JSON). Schema changes are additive (`ALTER TABLE ... ADD COLUMN`, guarded by
-  a `PRAGMA table_info` check) so existing databases upgrade in place.
+- A single SQLite database (`app.db`, via Node's built-in `node:sqlite`
+  (`DatabaseSync`), WAL mode): a `boards` table (metadata — name, avatar,
+  public/slug, timestamps), a `board_data` row per board (`{ version, groups,
+  lanes, tasks, activeThemeId }` as JSON), and a `themes` row (`{ version,
+  themes }` as JSON). Schema changes are additive (`ALTER TABLE ... ADD
+  COLUMN`, guarded by a `PRAGMA table_info` check) so existing databases
+  upgrade in place.
+- Deliberately **not** `better-sqlite3` (a native addon): this app used to
+  depend on it, but a native binary that has to match the exact Node ABI/
+  platform/libc is a real source of "works locally, fails in production"
+  breakage (musl vs glibc, missing prebuilds for a given arch, no compiler
+  toolchain to build from source, etc.) — exactly what forced this switch.
+  `node:sqlite`'s `DatabaseSync` is part of Node itself (stable API surface
+  since Node 22.5, still flagged `Experimental` — a stability marker, not a
+  sign it's flag-gated; no `--experimental-sqlite` flag is needed on the
+  Node versions this app targets), so there's no native module to fail to
+  install or load. It has no `db.transaction(fn)` helper the way
+  better-sqlite3 did (`store.ts`'s `withTransaction()` wraps explicit
+  `BEGIN`/`COMMIT`/`ROLLBACK` instead) and, unlike better-sqlite3, throws if
+  a bound named-parameter object has a key the SQL doesn't reference —
+  otherwise the two APIs line up closely enough that this was a mechanical,
+  single-file port (see `server/utils/store.ts`'s top-of-file comment).
 - The directory is configurable via the `NUXT_DATA_DIR` environment variable
   (see `nuxt.config.ts` → `runtimeConfig.dataDir`), which is what the
   Playwright E2E config and tests use to keep test data isolated from local
@@ -237,5 +253,15 @@ are immutable); editing a **custom** theme updates it in place. See
 |---|---|---|---|
 | Unit | Vitest + happy-dom | `vitest.config.ts` | pure logic (`collision`, `validation`, `useDrag`), store actions with mocked `$fetch` |
 | Component | Vitest + @vue/test-utils | `vitest.config.ts` | individual Vue components in isolation, and `RoadmapBoard` composed with its real children |
-| API integration | Vitest + @nuxt/test-utils | `vitest-api.config.ts` | real Nitro server + real file-backed store per test, exercising the full HTTP contract |
+| API integration | Vitest + @nuxt/test-utils | `vitest-api.config.ts` | real Nitro server + real SQLite-backed store per test, exercising the full HTTP contract |
 | E2E | Playwright | `playwright.config.ts` | full browser smoke test against `npm run dev`, covering create/edit/drag/theme/lane flows end-to-end |
+
+`tests/unit/store.spec.ts` opts out of the suite's default `happy-dom`
+environment via a `// @vitest-environment node` directive at the top of the
+file. It's the one unit test file that imports `server/utils/store.ts`
+directly (server-only code, now using the `node:sqlite` built-in) rather
+than going through a Pinia store's mocked `$fetch` — Vite's bundler won't
+bundle Node built-ins for a browser-like ("client") environment at all, so
+without the override this file's imports fail to resolve. Running it under
+plain `node` sidesteps the mismatch entirely rather than fighting Vite's
+environment-specific externalization config.

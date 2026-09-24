@@ -1,3 +1,11 @@
+// @vitest-environment node
+//
+// store.ts is server-only code and now imports the Node built-in
+// `node:sqlite`. The suite's default `happy-dom` environment maps to a
+// Vite "client" environment that refuses to bundle Node built-ins at all
+// (correctly, for genuinely browser-bound code) — this file never needed
+// DOM globals in the first place, so it gets the plain `node` environment
+// instead, where built-ins just work.
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
