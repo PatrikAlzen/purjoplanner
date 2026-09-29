@@ -279,6 +279,31 @@ one group** (drawn only within that group's own lanes).
   defaults (global, instantaneous, today) via the "+ Marker" button in the
   top bar and immediately opened in the panel for editing — the same
   create-with-defaults-then-edit flow `addTaskAt` uses for tasks.
+- **Click-and-drag start/end editing (`app/composables/useMarkerDrag.ts`)** —
+  a deliberately lighter sibling of `useDrag.ts`'s task controller: same
+  pure-math-plus-stateful-controller split (unit-testable without mounting
+  anything), but with no row or overlap concept, since a marker isn't tied to
+  a lane. A ranged marker gets two small resize handles at its band's edges
+  (`pointerdown-resize-left`/`-right`, one hidden whenever that edge is
+  clipped off-screen — the same rule `TaskPill` uses for its own handles); an
+  instantaneous marker has only one point, so dragging its tag moves that
+  point directly (`pointerdown-move`). Every drag snaps to the week grid
+  (`WEEKS_PER_MONTH`, imported from `useDrag.ts` so both stay in lockstep)
+  and is clamped to the visible 12-month window, exactly like a task drag.
+  `RoadmapBoard.vue`'s `displayMarker()` renders the live in-progress
+  position during a drag — analogous to `displayTask`, but expressed back
+  through the marker's own `{year, start, end}` storage shape rather than
+  window-relative numbers, since (unlike `TaskPill`) `MarkerOverlay`
+  recomputes its own visible span internally from those fields rather than
+  accepting pre-clipped coordinates.
+- **The band/line intercepts almost no clicks of its own.** A ranged
+  marker's band can span the full board width and multiple lane rows, so —
+  like `TodayMarker`'s own line — it sets `pointer-events: none` and only
+  re-enables it on the small `.marker-tag` label and the two edge handles;
+  without this, the marker would sit on top of `TaskPill`s in the stacking
+  order (it needs a `z-index` to paint above lane backgrounds, which makes it
+  paint above other `position: absolute` siblings regardless of DOM order)
+  and silently swallow clicks meant for any task it happened to cover.
 - **The public board view renders markers too** (`PublicBoardView.markers` in
   `board-service.ts`, filtered to the public window the same way tasks are),
   but with `MarkerOverlay`'s `readonly` prop set — no `role="button"`,

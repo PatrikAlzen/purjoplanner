@@ -8,9 +8,10 @@ import Lane from '../../app/components/board/Lane.vue'
 import TaskPill from '../../app/components/board/TaskPill.vue'
 import TodayMarker from '../../app/components/board/TodayMarker.vue'
 import AddTaskZone from '../../app/components/board/AddTaskZone.vue'
+import MarkerOverlay from '../../app/components/board/MarkerOverlay.vue'
 import { useBoardStore } from '../../app/stores/board'
 
-const globalComponents = { MonthHeader, Group, Lane, TaskPill, TodayMarker, AddTaskZone }
+const globalComponents = { MonthHeader, Group, Lane, TaskPill, TodayMarker, AddTaskZone, MarkerOverlay }
 
 // January 2026, expressed as an absolute month index (year * 12 + month).
 const ANCHOR_2026 = 2026 * 12
@@ -173,6 +174,44 @@ describe('RoadmapBoard', () => {
           body: expect.objectContaining({ laneId: 'l2', start: 0, end: 0.25 })
         })
       )
+    })
+  })
+
+  describe('markers', () => {
+    it('emits open-marker when an instantaneous marker is clicked without dragging', async () => {
+      vi.stubGlobal('$fetch', vi.fn())
+      const store = seedStore()
+      store.markers = [{ id: 'm1', label: 'Launch', color: '#5B6EE1', groupId: null, year: 2026, start: 3, end: null }]
+      const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
+
+      const tag = wrapper.find('.marker-line .marker-tag')
+      expect(tag.exists()).toBe(true)
+      await tag.trigger('pointerdown', { clientX: 0, clientY: 0 })
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 1, clientY: 0 }))
+      await flushPromises()
+      expect(wrapper.emitted('open-marker')?.[0]).toEqual(['m1'])
+    })
+
+    it('emits open-marker when a ranged marker\'s tag is clicked', async () => {
+      vi.stubGlobal('$fetch', vi.fn())
+      const store = seedStore()
+      store.markers = [{ id: 'm1', label: 'Freeze', color: '#C9584A', groupId: null, year: 2026, start: 1, end: 3 }]
+      const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
+
+      const tag = wrapper.find('.marker-band .marker-tag')
+      expect(tag.exists()).toBe(true)
+      await tag.trigger('click')
+      expect(wrapper.emitted('open-marker')?.[0]).toEqual(['m1'])
+    })
+
+    it('renders a group-scoped marker only within its own group', () => {
+      vi.stubGlobal('$fetch', vi.fn())
+      const store = seedStore()
+      store.groups.push({ id: 'g2', name: 'Group 2', order: 1 })
+      store.lanes.push({ id: 'l3', name: 'Lane 3', order: 0, groupId: 'g2' })
+      store.markers = [{ id: 'm1', label: 'Scoped', color: '#5B6EE1', groupId: 'g1', year: 2026, start: 3, end: null }]
+      const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
+      expect(wrapper.findAll('.marker-line').length).toBe(1)
     })
   })
 })

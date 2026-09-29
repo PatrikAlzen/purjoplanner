@@ -2,9 +2,10 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useBoard } from '../../composables/useBoard'
 import { useDrag, WEEKS_PER_MONTH, type DragMode, type DragResult } from '../../composables/useDrag'
+import { useMarkerDrag, type MarkerDragMode, type MarkerDragResult } from '../../composables/useMarkerDrag'
 import { useCompactMode } from '../../composables/useCompactMode'
 import { taskViewSpan, absoluteRange } from '#shared/window'
-import type { Task } from '#shared/types'
+import type { Marker, Task } from '#shared/types'
 
 const STEP_MONTHS = 1 / WEEKS_PER_MONTH
 const NEW_TASK_PALETTE = ['#DF9438', '#2F8F8B', '#C9584A', '#5B6EE1', '#6B8F47', '#8B5FBF', '#5A6B7A', '#C6689A']
@@ -219,6 +220,65 @@ function tasksForRow(rowIndex: number): Task[] {
   })
 }
 
+// --- Marker drag/resize --------------------------------------------------
+// Markers have no lane/row or overlap constraint, so this is a lighter
+// sibling of the task drag controller above — see useMarkerDrag.ts.
+const markerDragOverrides = reactive(new Map<string, MarkerDragResult>())
+const draggingMarkerId = ref<string | null>(null)
+
+const markerController = useMarkerDrag({
+  geometry: () => ({ monthWidth: monthWidth.value }),
+  onPreview: (markerId, result) => {
+    markerDragOverrides.set(markerId, result)
+    draggingMarkerId.value = markerId
+  },
+  onCommit: (markerId, result) => {
+    markerDragOverrides.delete(markerId)
+    draggingMarkerId.value = null
+    const marker = store.markers.find((m) => m.id === markerId)
+    if (!marker) return
+    const absStart = props.anchorMonth + result.start
+    const absEnd = result.end === null ? null : props.anchorMonth + result.end
+    const { year: newYear, start: newStart } = toStorage(absStart, absEnd ?? absStart)
+    const newEnd = absEnd === null ? null : absEnd - newYear * 12
+    if (marker.year === newYear && marker.start === newStart && marker.end === newEnd) return
+    void store.updateMarker(markerId, { year: newYear, start: newStart, end: newEnd }).catch(() => {})
+  },
+  onClick: (markerId) => emit('open-marker', markerId)
+})
+
+function onMarkerWindowMove(e: PointerEvent) {
+  markerController.move(e)
+}
+function onMarkerWindowUp() {
+  markerController.end()
+  window.removeEventListener('pointermove', onMarkerWindowMove)
+  window.removeEventListener('pointerup', onMarkerWindowUp)
+}
+
+function startMarkerDrag(e: PointerEvent, marker: Marker, mode: MarkerDragMode) {
+  const span = taskViewSpan({ ...marker, end: marker.end ?? marker.start }, props.anchorMonth)
+  if (!span) return
+  markerController.start(e, marker.id, mode, { start: span.start, end: marker.end === null ? null : span.end })
+  window.addEventListener('pointermove', onMarkerWindowMove)
+  window.addEventListener('pointerup', onMarkerWindowUp)
+}
+
+// Renders a marker at its live drag-preview position while being dragged —
+// same idea as `displayTask`, but since MarkerOverlay computes its own
+// window-relative span internally (unlike TaskPill, which is handed
+// pre-clipped coordinates), the override is expressed back in the marker's
+// own {year, start, end} storage shape rather than window-relative numbers.
+function displayMarker(marker: Marker): Marker {
+  const override = markerDragOverrides.get(marker.id)
+  if (!override) return marker
+  const absStart = props.anchorMonth + override.start
+  const absEnd = override.end === null ? null : props.anchorMonth + override.end
+  const { year, start } = toStorage(absStart, absEnd ?? absStart)
+  const end = absEnd === null ? null : absEnd - year * 12
+  return { ...marker, year, start, end }
+}
+
 // --- Click-to-add (AddTaskZone) ------------------------------------------
 // AddTaskZone only shows its "+" over pixels not already covered by a task
 // pill (pills paint on top and intercept the pointer there first), so in
@@ -396,22 +456,30 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
             <MarkerOverlay
               v-for="marker in store.globalMarkers"
               :key="marker.id"
-              :marker="marker"
+              :marker="displayMarker(marker)"
               :anchor-month="anchorMonth"
               :height="todayMarkerHeight"
               :month-width="monthWidth"
+              :dragging="draggingMarkerId === marker.id"
               @click="emit('open-marker', marker.id)"
+              @pointerdown-move="(e) => startMarkerDrag(e, marker, 'move')"
+              @pointerdown-resize-left="(e) => startMarkerDrag(e, marker, 'resize-left')"
+              @pointerdown-resize-right="(e) => startMarkerDrag(e, marker, 'resize-right')"
             />
           </template>
           <template v-if="isFirstLaneInGroup(lane.id, group.id)">
             <MarkerOverlay
               v-for="marker in store.markersForGroup(group.id)"
               :key="marker.id"
-              :marker="marker"
+              :marker="displayMarker(marker)"
               :anchor-month="anchorMonth"
               :height="groupHeights[group.id] ?? 0"
               :month-width="monthWidth"
+              :dragging="draggingMarkerId === marker.id"
               @click="emit('open-marker', marker.id)"
+              @pointerdown-move="(e) => startMarkerDrag(e, marker, 'move')"
+              @pointerdown-resize-left="(e) => startMarkerDrag(e, marker, 'resize-left')"
+              @pointerdown-resize-right="(e) => startMarkerDrag(e, marker, 'resize-right')"
             />
           </template>
           <TaskPill
