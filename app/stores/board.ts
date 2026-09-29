@@ -6,6 +6,9 @@ import type {
   Lane,
   LaneCreateInput,
   LaneUpdateInput,
+  Marker,
+  MarkerCreateInput,
+  MarkerUpdateInput,
   Task,
   TaskCreateInput,
   TaskUpdateInput
@@ -19,6 +22,7 @@ export const useBoardStore = defineStore('board', {
     groups: [] as Group[],
     lanes: [] as Lane[],
     tasks: [] as Task[],
+    markers: [] as Marker[],
     activeThemeId: 'slate-amber',
     // First month of the sliding 12-month view window, as an absolute month
     // index. See `defaultAnchorMonth` for what this defaults to and why.
@@ -65,7 +69,12 @@ export const useBoardStore = defineStore('board', {
     laneHasTasks:
       (state) =>
       (laneId: string): boolean =>
-        state.tasks.some((t) => t.laneId === laneId)
+        state.tasks.some((t) => t.laneId === laneId),
+    globalMarkers: (state): Marker[] => state.markers.filter((m) => m.groupId === null),
+    markersForGroup:
+      (state) =>
+      (groupId: string): Marker[] =>
+        state.markers.filter((m) => m.groupId === groupId)
   },
 
   actions: {
@@ -74,6 +83,7 @@ export const useBoardStore = defineStore('board', {
       this.groups = board.groups
       this.lanes = board.lanes
       this.tasks = board.tasks
+      this.markers = board.markers
       this.activeThemeId = board.activeThemeId
       this.loaded = true
       // Undo history refers to this board's own task/lane/group ids —
@@ -139,6 +149,12 @@ export const useBoardStore = defineStore('board', {
       const idx = this.groups.findIndex((g) => g.id === id)
       if (idx === -1) return
       const [removed] = this.groups.splice(idx, 1)
+      // The server cascade-deletes markers scoped to this group (they're an
+      // annotation on it, not independent content) — mirror that locally so
+      // client state stays in sync, and fold it into the same undo entry so
+      // undoing "remove group" restores its markers too, as one step.
+      const removedMarkers = this.markers.filter((m) => m.groupId === id)
+      this.markers = this.markers.filter((m) => m.groupId !== id)
       try {
         await $fetch(`/api/groups/${id}`, { method: 'DELETE' })
         const ref = { id }
@@ -147,11 +163,17 @@ export const useBoardStore = defineStore('board', {
           undo: async () => {
             const g = await this.createGroup({ name: removed.name, order: removed.order })
             ref.id = g.id
+            for (const m of removedMarkers) {
+              await this.createMarker({ label: m.label, color: m.color, groupId: g.id, year: m.year, start: m.start, end: m.end })
+            }
           },
+          // Redo just deletes the (possibly re-created) group again, which
+          // naturally re-cascades its markers via this same function.
           redo: () => this.removeGroup(ref.id)
         })
       } catch (err) {
         this.groups.splice(idx, 0, removed)
+        this.markers.push(...removedMarkers)
         useToast().pushError(errorMessage(err), () => void this.removeGroup(id))
         throw err
       }
@@ -365,6 +387,93 @@ export const useBoardStore = defineStore('board', {
       } catch (err) {
         this.tasks.splice(idx, 0, removed)
         useToast().pushError(errorMessage(err), () => void this.removeTask(id))
+        throw err
+      }
+    },
+
+    // --- Markers ---------------------------------------------------------
+    // Same id-ref create/delete pattern as groups/lanes/tasks above. Unlike
+    // tasks, there's no lane/overlap bookkeeping — a marker is either global
+    // (`groupId: null`) or scoped to one group, and either instantaneous
+    // (`end: null`) or ranged.
+    async createMarker(input: MarkerCreateInput): Promise<Marker> {
+      try {
+        const marker = await $fetch<Marker>('/api/markers', { method: 'POST', body: input })
+        this.markers.push(marker)
+        const ref = { id: marker.id }
+        useHistoryStore().push({
+          label: 'add marker',
+          undo: () => this.removeMarker(ref.id),
+          redo: async () => {
+            const m = await this.createMarker({
+              label: marker.label,
+              color: marker.color,
+              groupId: marker.groupId,
+              year: marker.year,
+              start: marker.start,
+              end: marker.end
+            })
+            ref.id = m.id
+          }
+        })
+        return marker
+      } catch (err) {
+        useToast().pushError(errorMessage(err), () => void this.createMarker(input))
+        throw err
+      }
+    },
+
+    async updateMarker(id: string, input: MarkerUpdateInput): Promise<Marker | undefined> {
+      const marker = this.markers.find((m) => m.id === id)
+      const snapshot = marker ? { ...marker } : undefined
+      if (marker) Object.assign(marker, input)
+      try {
+        const updated = await $fetch<Marker>(`/api/markers/${id}`, { method: 'PATCH', body: input })
+        if (marker) Object.assign(marker, updated)
+        if (snapshot) {
+          const before: MarkerUpdateInput = {}
+          for (const key of Object.keys(input) as (keyof MarkerUpdateInput)[]) {
+            ;(before as Record<string, unknown>)[key] = snapshot[key]
+          }
+          useHistoryStore().push({
+            label: 'edit marker',
+            undo: () => this.updateMarker(id, before),
+            redo: () => this.updateMarker(id, input)
+          })
+        }
+        return updated
+      } catch (err) {
+        if (marker && snapshot) Object.assign(marker, snapshot)
+        useToast().pushError(errorMessage(err), () => void this.updateMarker(id, input))
+        throw err
+      }
+    },
+
+    async removeMarker(id: string): Promise<void> {
+      const idx = this.markers.findIndex((m) => m.id === id)
+      if (idx === -1) return
+      const [removed] = this.markers.splice(idx, 1)
+      try {
+        await $fetch(`/api/markers/${id}`, { method: 'DELETE' })
+        const ref = { id }
+        useHistoryStore().push({
+          label: 'remove marker',
+          undo: async () => {
+            const m = await this.createMarker({
+              label: removed.label,
+              color: removed.color,
+              groupId: removed.groupId,
+              year: removed.year,
+              start: removed.start,
+              end: removed.end
+            })
+            ref.id = m.id
+          },
+          redo: () => this.removeMarker(ref.id)
+        })
+      } catch (err) {
+        this.markers.splice(idx, 0, removed)
+        useToast().pushError(errorMessage(err), () => void this.removeMarker(id))
         throw err
       }
     },

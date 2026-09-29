@@ -61,9 +61,20 @@ export interface ImportedGroup {
   lanes: ImportedLane[]
 }
 
+// The source format's markers apply across the whole roadmap, not to one
+// particular lane — they always import as global (this app's `groupId: null`)
+// instantaneous markers.
+export interface ImportedMarker {
+  label: string
+  color: string
+  year: number
+  start: number
+}
+
 export interface ImportedBoard {
   boardName: string
   groups: ImportedGroup[]
+  markers: ImportedMarker[]
 }
 
 export interface ConvertResult {
@@ -198,8 +209,8 @@ function convertGroup(rawLane: unknown, groupIdx: number, warnings: string[]): I
   return { name: groupTitle, lanes }
 }
 
-function convertMarkers(rawMarkers: unknown[], warnings: string[]): ImportedGroup | undefined {
-  const tasks: ImportedTask[] = []
+function convertMarkers(rawMarkers: unknown[], warnings: string[]): ImportedMarker[] {
+  const markers: ImportedMarker[] = []
   for (const rawMarker of rawMarkers) {
     const marker = rawMarker as Record<string, unknown>
     const dateRaw = typeof marker.markerDate === 'string' ? marker.markerDate : undefined
@@ -209,18 +220,14 @@ function convertMarkers(rawMarkers: unknown[], warnings: string[]): ImportedGrou
       continue
     }
     const pos = date.month + weekOfMonth(date.day) * 0.25
-    tasks.push({
-      name: sanitizeText(marker.title, 'Marker', 200),
+    markers.push({
+      label: sanitizeText(marker.title, 'Marker', 200),
       color: MARKER_COLOR,
-      description:
-        'Imported marker — shown here as a 1-week task since this app has no dedicated marker/milestone type yet.',
-      link: '',
       year: date.year,
-      start: pos,
-      end: pos
+      start: pos
     })
   }
-  return tasks.length > 0 ? { name: 'Markers', lanes: [{ name: 'Lane 1', tasks }] } : undefined
+  return markers
 }
 
 export function convertRoadmapExport(raw: string): ConvertResult {
@@ -249,14 +256,10 @@ export function convertRoadmapExport(raw: string): ConvertResult {
 
   const warnings: string[] = []
   const groups = (data.lanes ?? []).map((rawLane, idx) => convertGroup(rawLane, idx, warnings))
-
-  if (Array.isArray(data.markers) && data.markers.length > 0) {
-    const markerGroup = convertMarkers(data.markers, warnings)
-    if (markerGroup) groups.push(markerGroup)
-  }
+  const markers = Array.isArray(data.markers) ? convertMarkers(data.markers, warnings) : []
 
   return {
-    board: { boardName: IMPORTED_BOARD_NAME, groups },
+    board: { boardName: IMPORTED_BOARD_NAME, groups, markers },
     warnings
   }
 }

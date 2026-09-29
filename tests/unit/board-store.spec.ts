@@ -11,17 +11,17 @@ function createFetchMock() {
   let counter = 0
   return vi.fn((url: string, opts: { method?: string; body?: any } = {}) => {
     const method = opts.method ?? 'GET'
-    if (method === 'POST' && (url === '/api/tasks' || url === '/api/lanes' || url === '/api/groups')) {
+    if (
+      method === 'POST' &&
+      (url === '/api/tasks' || url === '/api/lanes' || url === '/api/groups' || url === '/api/markers')
+    ) {
       counter++
-      const prefix = url === '/api/tasks' ? 't' : url === '/api/lanes' ? 'l' : 'g'
-      return Promise.resolve({
-        id: `${prefix}${counter}`,
-        description: '',
-        link: '',
-        createdAt: '',
-        updatedAt: '',
-        ...opts.body
-      })
+      const prefix = url === '/api/tasks' ? 't' : url === '/api/lanes' ? 'l' : url === '/api/groups' ? 'g' : 'm'
+      const defaults =
+        url === '/api/markers'
+          ? { groupId: null, end: null }
+          : { description: '', link: '', createdAt: '', updatedAt: '' }
+      return Promise.resolve({ id: `${prefix}${counter}`, ...defaults, ...opts.body })
     }
     return Promise.resolve({})
   })
@@ -294,10 +294,104 @@ describe('board store', () => {
 
       vi.stubGlobal(
         '$fetch',
-        vi.fn().mockResolvedValue({ groups: [], lanes: [], tasks: [], activeThemeId: 'slate-amber' })
+        vi.fn().mockResolvedValue({ groups: [], lanes: [], tasks: [], markers: [], activeThemeId: 'slate-amber' })
       )
       await store.load()
       expect(history.canUndo).toBe(false)
+    })
+  })
+
+  describe('markers', () => {
+    it('createMarker can be undone (deletes it) and redone (recreates it under a new id)', async () => {
+      vi.stubGlobal('$fetch', createFetchMock())
+      const store = useBoardStore()
+      const history = useHistoryStore()
+
+      const marker = await store.createMarker({ label: 'Launch', color: '#000', year: 2026, start: 3 })
+      expect(marker.groupId).toBeNull()
+      expect(marker.end).toBeNull()
+      expect(store.markers.map((m) => m.id)).toEqual([marker.id])
+
+      await history.undo()
+      expect(store.markers).toEqual([])
+
+      await history.redo()
+      expect(store.markers.length).toBe(1)
+      expect(store.markers[0]!.label).toBe('Launch')
+    })
+
+    it('removeMarker can be undone (recreates it) and redone (deletes it again)', async () => {
+      vi.stubGlobal('$fetch', createFetchMock())
+      const store = useBoardStore()
+      const history = useHistoryStore()
+      store.markers = [{ id: 'm1', label: 'Freeze', color: '#000', groupId: 'g1', year: 2026, start: 1, end: 2 }]
+
+      await store.removeMarker('m1')
+      expect(store.markers).toEqual([])
+
+      await history.undo()
+      expect(store.markers.length).toBe(1)
+      expect(store.markers[0]!).toMatchObject({ label: 'Freeze', groupId: 'g1', start: 1, end: 2 })
+
+      await history.redo()
+      expect(store.markers).toEqual([])
+    })
+
+    it('updateMarker undo/redo only replays the fields that were actually changed', async () => {
+      vi.stubGlobal('$fetch', createFetchMock())
+      const store = useBoardStore()
+      const history = useHistoryStore()
+      store.markers = [{ id: 'm1', label: 'Old', color: '#000', groupId: null, year: 2026, start: 1, end: null }]
+
+      await store.updateMarker('m1', { label: 'New' })
+      expect(store.markers[0]!.label).toBe('New')
+
+      await history.undo()
+      expect(store.markers[0]!.label).toBe('Old')
+      expect(store.markers[0]!.year).toBe(2026) // untouched field, never reverted
+
+      await history.redo()
+      expect(store.markers[0]!.label).toBe('New')
+    })
+
+    it('globalMarkers and markersForGroup partition by groupId', () => {
+      const store = useBoardStore()
+      store.markers = [
+        { id: 'm1', label: 'Global', color: '#000', groupId: null, year: 2026, start: 0, end: null },
+        { id: 'm2', label: 'Scoped', color: '#000', groupId: 'g1', year: 2026, start: 0, end: null }
+      ]
+      expect(store.globalMarkers.map((m) => m.id)).toEqual(['m1'])
+      expect(store.markersForGroup('g1').map((m) => m.id)).toEqual(['m2'])
+      expect(store.markersForGroup('does-not-exist')).toEqual([])
+    })
+
+    it("removeGroup cascades its scoped markers and undo restores both as one step", async () => {
+      vi.stubGlobal('$fetch', createFetchMock())
+      const store = useBoardStore()
+      const history = useHistoryStore()
+      store.groups = [{ id: 'g1', name: 'Group 1', order: 0 }]
+      store.markers = [
+        { id: 'm1', label: 'Scoped', color: '#000', groupId: 'g1', year: 2026, start: 1, end: null },
+        { id: 'm2', label: 'Global', color: '#000', groupId: null, year: 2026, start: 2, end: null }
+      ]
+
+      await store.removeGroup('g1')
+      expect(store.groups).toEqual([])
+      // The scoped marker is gone; the global one is untouched.
+      expect(store.markers.map((m) => m.id)).toEqual(['m2'])
+      expect(history.canUndo).toBe(true)
+
+      await history.undo()
+      expect(store.groups.length).toBe(1)
+      // Both markers are back — the scoped one now pointing at the
+      // recreated group's (new) id — as a single undo step.
+      expect(store.markers.map((m) => m.label).sort()).toEqual(['Global', 'Scoped'])
+      const scoped = store.markers.find((m) => m.label === 'Scoped')!
+      expect(scoped.groupId).toBe(store.groups[0]!.id)
+
+      await history.redo()
+      expect(store.groups).toEqual([])
+      expect(store.markers.map((m) => m.id)).toEqual(['m2'])
     })
   })
 })

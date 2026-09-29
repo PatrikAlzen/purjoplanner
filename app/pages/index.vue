@@ -7,6 +7,7 @@ import { defaultAnchorMonth } from '#shared/window'
 const store = useBoardStore()
 const history = useHistoryStore()
 const openTaskId = ref<string | null>(null)
+const openMarkerId = ref<string | null>(null)
 
 const anchorMonth = computed({
   get: () => store.anchorMonth,
@@ -28,6 +29,13 @@ function openTask(taskId: string) {
 }
 function closePanel() {
   openTaskId.value = null
+}
+
+function openMarker(markerId: string) {
+  openMarkerId.value = markerId
+}
+function closeMarkerPanel() {
+  openMarkerId.value = null
 }
 
 // Ctrl/Cmd+Z to undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y to redo — skipped while
@@ -66,6 +74,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <template #board-switcher>
         <BoardSwitcher />
       </template>
+      <template #add-marker>
+        <AddMarkerButton @created="openMarker" />
+      </template>
       <template #undo-redo>
         <UndoRedoControls />
       </template>
@@ -80,8 +91,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </template>
     </TopBar>
 
-    <RoadmapBoard :anchor-month="anchorMonth" @open-task="openTask" />
+    <RoadmapBoard :anchor-month="anchorMonth" @open-task="openTask" @open-marker="openMarker" />
 
     <TaskPanel :task-id="openTaskId" @close="closePanel" />
+    <MarkerPanel :marker-id="openMarkerId" @close="closeMarkerPanel" />
   </div>
 </template>

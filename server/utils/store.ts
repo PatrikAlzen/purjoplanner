@@ -470,6 +470,7 @@ export function createDefaultBoard(): BoardData {
       { id: randomUUID(), name: 'Lane 3', order: 2, groupId }
     ],
     tasks: [],
+    markers: [],
     activeThemeId: DEFAULT_THEME_ID
   }
 }
@@ -477,8 +478,9 @@ export function createDefaultBoard(): BoardData {
 /**
  * Boards written before groups existed (or restored from a legacy JSON
  * export) have no `groups` array and lanes with no `groupId`. Backfills a
- * single default group and assigns any group-less/orphaned lane to it,
- * returning `changed: true` so the caller can persist the backfill once.
+ * single default group and assigns any group-less/orphaned lane to it.
+ * Boards written before markers existed have no `markers` array at all.
+ * Either backfill sets `changed: true` so the caller can persist it once.
  */
 function migrateBoardData(raw: BoardData): { data: BoardData; changed: boolean } {
   let groups: Group[] = raw.groups
@@ -494,8 +496,13 @@ function migrateBoardData(raw: BoardData): { data: BoardData; changed: boolean }
     changed = true
     return { ...lane, groupId: fallbackGroupId }
   })
+  let markers = raw.markers
+  if (!markers) {
+    markers = []
+    changed = true
+  }
   if (!changed) return { data: raw, changed: false }
-  return { data: { ...raw, groups, lanes }, changed: true }
+  return { data: { ...raw, groups, lanes, markers }, changed: true }
 }
 
 function createBoardMeta(id: string, name: string): Board {

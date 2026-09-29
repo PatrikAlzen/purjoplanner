@@ -15,6 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'open-task', taskId: string): void
+  (e: 'open-marker', markerId: string): void
 }>()
 
 const { store, isOverlapping } = useBoard()
@@ -25,6 +26,13 @@ const tasksForWindow = computed(() => store.tasksForWindow(props.anchorMonth))
 
 function rowIndexForLane(laneId: string): number {
   return laneRows.value.findIndex((l) => l.id === laneId)
+}
+
+// Whether `laneId` is the first (topmost) lane within its own group — where
+// that group's own scoped markers are rendered, the same way global markers
+// render inside the board's overall first lane.
+function isFirstLaneInGroup(laneId: string, groupId: string): boolean {
+  return store.lanesForGroup(groupId)[0]?.id === laneId
 }
 
 // --- Sliding window task spans ------------------------------------------
@@ -62,6 +70,11 @@ const todayMarkerHeight = ref(0)
 // `row * laneHeight` formula to know which row the pointer is over — see
 // the comment on `DragGeometry.rowOffsets`.
 const rowOffsets = ref<number[]>([])
+// Same idea as `todayMarkerHeight`, but per group — a group-scoped marker
+// only spans that group's own lanes, not the whole board. Keyed by group id
+// (see the `data-group-id` attribute on Group.vue's root) rather than
+// relying on DOM order lining up with `store.sortedGroups`.
+const groupHeights = ref<Record<string, number>>({})
 let resizeObserver: ResizeObserver | null = null
 
 function measure() {
@@ -77,11 +90,25 @@ function measure() {
   rowOffsets.value = Array.from(tracks, (t) => t.getBoundingClientRect().top)
   if (tracks.length === 0) {
     todayMarkerHeight.value = 0
-    return
+  } else {
+    const first = tracks[0]!.getBoundingClientRect()
+    const last = tracks[tracks.length - 1]!.getBoundingClientRect()
+    todayMarkerHeight.value = last.bottom - first.top
   }
-  const first = tracks[0]!.getBoundingClientRect()
-  const last = tracks[tracks.length - 1]!.getBoundingClientRect()
-  todayMarkerHeight.value = last.bottom - first.top
+
+  const heights: Record<string, number> = {}
+  for (const groupEl of boardEl.value.querySelectorAll<HTMLElement>('.group[data-group-id]')) {
+    const id = groupEl.dataset.groupId!
+    const groupTracks = groupEl.querySelectorAll<HTMLElement>('.lane-track')
+    if (groupTracks.length === 0) {
+      heights[id] = 0
+      continue
+    }
+    const firstTrack = groupTracks[0]!.getBoundingClientRect()
+    const lastTrack = groupTracks[groupTracks.length - 1]!.getBoundingClientRect()
+    heights[id] = lastTrack.bottom - firstTrack.top
+  }
+  groupHeights.value = heights
 }
 
 onMounted(() => {
@@ -365,6 +392,28 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
             :height="todayMarkerHeight"
             :month-width="monthWidth"
           />
+          <template v-if="rowIndexForLane(lane.id) === 0">
+            <MarkerOverlay
+              v-for="marker in store.globalMarkers"
+              :key="marker.id"
+              :marker="marker"
+              :anchor-month="anchorMonth"
+              :height="todayMarkerHeight"
+              :month-width="monthWidth"
+              @click="emit('open-marker', marker.id)"
+            />
+          </template>
+          <template v-if="isFirstLaneInGroup(lane.id, group.id)">
+            <MarkerOverlay
+              v-for="marker in store.markersForGroup(group.id)"
+              :key="marker.id"
+              :marker="marker"
+              :anchor-month="anchorMonth"
+              :height="groupHeights[group.id] ?? 0"
+              :month-width="monthWidth"
+              @click="emit('open-marker', marker.id)"
+            />
+          </template>
           <TaskPill
             v-for="task in tasksForRow(rowIndexForLane(lane.id))"
             :key="task.id"

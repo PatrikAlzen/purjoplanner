@@ -22,6 +22,18 @@ export interface Group {
   order: number
 }
 
+export interface Marker {
+  id: string
+  label: string
+  color: string
+  groupId: string | null // null = global (spans every group); otherwise scoped to one group
+  year: number // the marker's start year, same convention as Task
+  start: number // 0-11.75 (month position within `year`), same convention as Task.start
+  end: number | null // null = instantaneous (rendered as a line, like the "today" marker);
+  // otherwise a ranged marker (rendered as a band) using the same 0-23.75,
+  // >= start, spans-at-most-one-year-boundary convention as Task.end
+}
+
 export interface Lane {
   id: string
   name: string
@@ -55,6 +67,7 @@ export interface BoardData {
   groups: Group[]
   lanes: Lane[]
   tasks: Task[]
+  markers: Marker[]
   activeThemeId: string
 }
 
@@ -94,6 +107,10 @@ export type GroupUpdateInput = Partial<Pick<Group, 'name' | 'order'>>
 
 export type LaneCreateInput = Pick<Lane, 'name' | 'groupId'> & Partial<Pick<Lane, 'order'>>
 export type LaneUpdateInput = Partial<Pick<Lane, 'name' | 'order' | 'groupId'>>
+
+export type MarkerCreateInput = Pick<Marker, 'label' | 'color' | 'year' | 'start'> &
+  Partial<Pick<Marker, 'groupId' | 'end'>>
+export type MarkerUpdateInput = Partial<Pick<Marker, 'label' | 'color' | 'groupId' | 'year' | 'start' | 'end'>>
 
 export type ThemeCreateInput = Pick<Theme, 'name' | 'colors' | 'palette'>
 export type ThemeUpdateInput = Partial<Pick<Theme, 'name' | 'colors' | 'palette'>>

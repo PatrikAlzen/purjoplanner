@@ -2,12 +2,13 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { taskViewSpan } from '#shared/window'
 import { COMPACT_METRICS, metricsToCssVars } from '../../composables/useCompactMode'
-import type { Group, Lane, Task } from '#shared/types'
+import type { Group, Lane, Marker, Task } from '#shared/types'
 
 const props = defineProps<{
   groups: Group[]
   lanes: Lane[]
   tasks: Task[]
+  markers: Marker[]
   anchorMonth: number
 }>()
 
@@ -31,8 +32,15 @@ function lanesForGroup(groupId: string): Lane[] {
 function rowIndexForLane(laneId: string): number {
   return sortedLanes.value.findIndex((l) => l.id === laneId)
 }
+function isFirstLaneInGroup(laneId: string, groupId: string): boolean {
+  return lanesForGroup(groupId)[0]?.id === laneId
+}
 function tasksForLane(laneId: string): Task[] {
   return props.tasks.filter((t) => t.laneId === laneId)
+}
+const globalMarkers = computed(() => props.markers.filter((m) => m.groupId === null))
+function markersForGroup(groupId: string): Marker[] {
+  return props.markers.filter((m) => m.groupId === groupId)
 }
 function displayTask(task: Task): Task {
   const span = taskViewSpan(task, props.anchorMonth)
@@ -44,6 +52,9 @@ function displayTask(task: Task): Task {
 const boardEl = ref<HTMLElement | null>(null)
 const monthWidth = ref(0)
 const todayMarkerHeight = ref(0)
+// Per-group height, for group-scoped markers — see the identical field on
+// RoadmapBoard.vue for the full reasoning.
+const groupHeights = ref<Record<string, number>>({})
 let resizeObserver: ResizeObserver | null = null
 
 function measure() {
@@ -54,11 +65,25 @@ function measure() {
   const tracks = boardEl.value.querySelectorAll<HTMLElement>('.lane-track')
   if (tracks.length === 0) {
     todayMarkerHeight.value = 0
-    return
+  } else {
+    const first = tracks[0]!.getBoundingClientRect()
+    const last = tracks[tracks.length - 1]!.getBoundingClientRect()
+    todayMarkerHeight.value = last.bottom - first.top
   }
-  const first = tracks[0]!.getBoundingClientRect()
-  const last = tracks[tracks.length - 1]!.getBoundingClientRect()
-  todayMarkerHeight.value = last.bottom - first.top
+
+  const heights: Record<string, number> = {}
+  for (const groupEl of boardEl.value.querySelectorAll<HTMLElement>('.group[data-group-id]')) {
+    const id = groupEl.dataset.groupId!
+    const groupTracks = groupEl.querySelectorAll<HTMLElement>('.lane-track')
+    if (groupTracks.length === 0) {
+      heights[id] = 0
+      continue
+    }
+    const firstTrack = groupTracks[0]!.getBoundingClientRect()
+    const lastTrack = groupTracks[groupTracks.length - 1]!.getBoundingClientRect()
+    heights[id] = lastTrack.bottom - firstTrack.top
+  }
+  groupHeights.value = heights
 }
 
 onMounted(() => {
@@ -110,6 +135,28 @@ onUnmounted(() => {
               :height="todayMarkerHeight"
               :month-width="monthWidth"
             />
+            <template v-if="rowIndexForLane(lane.id) === 0">
+              <MarkerOverlay
+                v-for="marker in globalMarkers"
+                :key="marker.id"
+                :marker="marker"
+                :anchor-month="anchorMonth"
+                :height="todayMarkerHeight"
+                :month-width="monthWidth"
+                readonly
+              />
+            </template>
+            <template v-if="isFirstLaneInGroup(lane.id, group.id)">
+              <MarkerOverlay
+                v-for="marker in markersForGroup(group.id)"
+                :key="marker.id"
+                :marker="marker"
+                :anchor-month="anchorMonth"
+                :height="groupHeights[group.id] ?? 0"
+                :month-width="monthWidth"
+                readonly
+              />
+            </template>
             <TaskPill
               v-for="task in tasksForLane(lane.id)"
               :key="task.id"

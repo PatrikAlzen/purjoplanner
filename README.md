@@ -27,6 +27,8 @@ Built with Nuxt 4 (Vue 3 + Nitro), Pinia, and Zod. See
 - Import a board from another roadmap tool's URL-encoded JSON export via
   "Import board…" in the board switcher — creates a new board, never
   touches an existing one, and reports anything it had to skip.
+- Add markers for dates that matter — instantaneous (like the "Today" line)
+  or ranged (like a task), scoped to one group or global across all of them.
 
 ## Setup
 

@@ -71,6 +71,35 @@ export const laneUpdateSchema = z.object({
   order: z.number().optional()
 })
 
+// `groupId: null` (or omitted) means the marker is global (spans every
+// group); a string scopes it to one specific group. `end: null` (or
+// omitted) means an instantaneous marker (rendered as a line, like the
+// "today" marker); a number makes it a ranged marker (rendered as a band).
+export const markerCreateSchema = z
+  .object({
+    label: z.string().trim().min(1).max(200),
+    color: z.string().regex(hexColor, 'color must be a hex value like #DF9438'),
+    groupId: z.string().min(1).nullable().optional(),
+    start: monthIndex,
+    end: endMonthIndex.nullable().optional(),
+    year: z.number().int().min(1970).max(3000)
+  })
+  .refine((v) => v.end == null || v.end >= v.start, { message: 'end must be >= start', path: ['end'] })
+
+export const markerUpdateSchema = z
+  .object({
+    label: z.string().trim().min(1).max(200).optional(),
+    color: z.string().regex(hexColor, 'color must be a hex value like #DF9438').optional(),
+    groupId: z.string().min(1).nullable().optional(),
+    start: monthIndex.optional(),
+    end: endMonthIndex.nullable().optional(),
+    year: z.number().int().min(1970).max(3000).optional()
+  })
+  .refine((v) => v.start === undefined || v.end === undefined || v.end == null || v.end >= v.start, {
+    message: 'end must be >= start',
+    path: ['end']
+  })
+
 export const themeColorsSchema = z.object({
   paper: z.string().min(1),
   paperAlt: z.string().min(1),

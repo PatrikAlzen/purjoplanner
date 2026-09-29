@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createError } from 'h3'
-import type { Board, BoardData, Group, Lane, Task, Theme } from '../../shared/types'
+import type { Board, BoardData, Group, Lane, Marker, Task, Theme } from '../../shared/types'
 import { findOverlap } from '../../shared/collision'
 import { taskViewSpan, publicAnchorMonth } from '../../shared/window'
 import {
@@ -25,6 +25,8 @@ import {
   laneUpdateSchema,
   taskCreateSchema,
   taskUpdateSchema,
+  markerCreateSchema,
+  markerUpdateSchema,
   boardCreateSchema,
   boardUpdateSchema
 } from './validation'
@@ -139,16 +141,18 @@ export interface PublicBoardView {
   groups: Group[]
   lanes: Lane[]
   tasks: Task[]
+  markers: Marker[]
   anchorMonth: number
 }
 
 /**
  * Looks up a board by its public slug and, if it's currently shared, returns
  * everything the read-only public view needs: the board's groups/lanes, its
- * active theme, and only the tasks visible in the public rolling window
- * (2 months before today through 9 months after — see `publicAnchorMonth`).
- * Returns `undefined` if no board matches or the match isn't public — the
- * route should treat both the same way (404), not reveal which it was.
+ * active theme, and only the tasks/markers visible in the public rolling
+ * window (2 months before today through 9 months after — see
+ * `publicAnchorMonth`). Returns `undefined` if no board matches or the match
+ * isn't public — the route should treat both the same way (404), not reveal
+ * which it was.
  */
 export async function getPublicBoardView(slug: string): Promise<PublicBoardView | undefined> {
   const index = await readBoardsIndex()
@@ -164,6 +168,9 @@ export async function getPublicBoardView(slug: string): Promise<PublicBoardView 
 
   const anchorMonth = publicAnchorMonth()
   const tasks = data.tasks.filter((t) => taskViewSpan(t, anchorMonth) !== null)
+  // An instantaneous marker (`end: null`) is treated as a zero-width range
+  // for this check — taskViewSpan only needs {year, start, end}.
+  const markers = data.markers.filter((m) => taskViewSpan({ ...m, end: m.end ?? m.start }, anchorMonth) !== null)
 
   return {
     board: { id: boardMeta.id, name: boardMeta.name },
@@ -171,6 +178,7 @@ export async function getPublicBoardView(slug: string): Promise<PublicBoardView 
     groups: data.groups,
     lanes: data.lanes,
     tasks,
+    markers,
     anchorMonth
   }
 }
@@ -218,6 +226,10 @@ export async function deleteGroup(id: string): Promise<void> {
       throw createError({ statusCode: 409, statusMessage: 'Group still has lanes assigned to it' })
     }
     board.groups = board.groups.filter((g) => g.id !== id)
+    // A marker scoped to this group is an annotation on it, not the group's
+    // own content the way lanes/tasks are — cascade-delete it (undoable,
+    // like everything else) rather than blocking the group's removal.
+    board.markers = board.markers.filter((m) => m.groupId !== id)
   })
 }
 
@@ -370,6 +382,63 @@ export async function deleteTask(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Markers — unlike tasks, these don't occupy a lane and never conflict with
+// each other or with tasks, so there's no overlap check here at all.
+// ---------------------------------------------------------------------------
+
+export async function createMarker(input: unknown): Promise<Marker> {
+  const parsed = parseWithSchema(markerCreateSchema, input)
+  const { result } = await mutateBoard((board) => {
+    if (parsed.groupId && !board.groups.some((g) => g.id === parsed.groupId)) {
+      throw createError({ statusCode: 404, statusMessage: 'Group not found' })
+    }
+    const marker: Marker = {
+      id: randomUUID(),
+      label: parsed.label,
+      color: parsed.color,
+      groupId: parsed.groupId ?? null,
+      year: parsed.year,
+      start: parsed.start,
+      end: parsed.end ?? null
+    }
+    board.markers.push(marker)
+    return marker
+  })
+  return result
+}
+
+export async function updateMarker(id: string, input: unknown): Promise<Marker> {
+  const parsed = parseWithSchema(markerUpdateSchema, input)
+  const { result } = await mutateBoard((board) => {
+    const marker = board.markers.find((m) => m.id === id)
+    if (!marker) {
+      throw createError({ statusCode: 404, statusMessage: 'Marker not found' })
+    }
+    if (parsed.groupId !== undefined && parsed.groupId !== null && !board.groups.some((g) => g.id === parsed.groupId)) {
+      throw createError({ statusCode: 404, statusMessage: 'Group not found' })
+    }
+    if (parsed.label !== undefined) marker.label = parsed.label
+    if (parsed.color !== undefined) marker.color = parsed.color
+    if (parsed.groupId !== undefined) marker.groupId = parsed.groupId
+    if (parsed.year !== undefined) marker.year = parsed.year
+    if (parsed.start !== undefined) marker.start = parsed.start
+    if (parsed.end !== undefined) marker.end = parsed.end
+    return marker
+  })
+  return result
+}
+
+export async function deleteMarker(id: string): Promise<void> {
+  await mutateBoard((board) => {
+    const exists = board.markers.some((m) => m.id === id)
+    if (!exists) {
+      throw createError({ statusCode: 404, statusMessage: 'Marker not found' })
+    }
+    board.markers = board.markers.filter((m) => m.id !== id)
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Active theme
 // ---------------------------------------------------------------------------
 
@@ -449,6 +518,14 @@ export async function importRoadmapExport(input: unknown): Promise<ImportBoardRe
           warnings.push(`Skipped "${task.name}" in "${group.name} / ${lane.name}": ${describeError(err)}`)
         }
       }
+    }
+  }
+
+  for (const marker of converted.board.markers) {
+    try {
+      await createMarker({ label: marker.label, color: marker.color, groupId: null, year: marker.year, start: marker.start, end: null })
+    } catch (err) {
+      warnings.push(`Skipped marker "${marker.label}": ${describeError(err)}`)
     }
   }
 

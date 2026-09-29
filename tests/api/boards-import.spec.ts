@@ -37,11 +37,13 @@ describe('POST /api/boards/import', () => {
     const boardData = await authedFetch('/api/board')
     // The seeded default group/lanes from board creation should have been
     // cleared out, leaving only the imported content. Each source "lane"
-    // becomes its own group (not a lane) — "Prio 1" and "Markers" here.
-    expect(boardData.groups.map((g: any) => g.name)).toEqual(['Prio 1', 'Markers'])
-    expect(boardData.lanes.map((l: any) => l.name)).toEqual(['Lane 1', 'Lane 1'])
+    // becomes its own group (not a lane) — "Prio 1" here.
+    expect(boardData.groups.map((g: any) => g.name)).toEqual(['Prio 1'])
+    expect(boardData.lanes.map((l: any) => l.name)).toEqual(['Lane 1'])
     const task = boardData.tasks.find((t: any) => t.name === 'Inpasseringsportalen')
     expect(task).toMatchObject({ color: '#6c9fd3', description: 'This is the third bar.' })
+    // Source markers import as real, global, instantaneous markers.
+    expect(boardData.markers).toMatchObject([{ label: 'Avstämning', groupId: null, end: null }])
   })
 
   it('does not touch any existing board', async () => {

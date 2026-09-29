@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { monthLabel } from '#shared/window'
 import { themeStyleVars } from '#shared/theme'
-import type { Group, Lane, Task, Theme } from '#shared/types'
+import type { Group, Lane, Marker, Task, Theme } from '#shared/types'
 
 // Read-only, unauthenticated (see server/middleware/auth.ts's exclusion for
 // `/public/`) — app.vue checks this flag to skip loading the admin-only
@@ -15,6 +15,7 @@ interface PublicBoardResponse {
   groups: Group[]
   lanes: Lane[]
   tasks: Task[]
+  markers: Marker[]
   anchorMonth: number
 }
 
@@ -52,6 +53,7 @@ const rangeLabel = computed(() =>
         :groups="data.groups"
         :lanes="data.lanes"
         :tasks="data.tasks"
+        :markers="data.markers"
         :anchor-month="data.anchorMonth"
       />
     </template>

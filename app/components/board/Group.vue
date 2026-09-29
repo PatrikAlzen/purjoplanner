@@ -126,6 +126,7 @@ function onDrop(e: DragEvent) {
 <template>
   <div
     class="group"
+    :data-group-id="groupId"
     :class="{
       'drag-over': dragOver,
       dragging,

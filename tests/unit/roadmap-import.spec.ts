@@ -13,7 +13,7 @@ describe('convertRoadmapExport — real sample payload', () => {
     expect(result.warnings).toEqual([])
 
     const groupNames = result.board.groups.map((g) => g.name)
-    expect(groupNames).toEqual(['Prio 1', 'Prio 2', 'Prio 3', 'Prio 4', 'Prio 5', 'Prio 6', 'Prio 7', 'Markers'])
+    expect(groupNames).toEqual(['Prio 1', 'Prio 2', 'Prio 3', 'Prio 4', 'Prio 5', 'Prio 6', 'Prio 7'])
   })
 
   it('gives an empty source lane one empty lane (not zero), so the structure still matches 1:1', () => {
@@ -65,18 +65,15 @@ describe('convertRoadmapExport — real sample payload', () => {
     const result = convertRoadmapExport(SAMPLE_EXPORT)
     const prio6 = result.board.groups.find((g) => g.name === 'Prio 6')!
     expect(prio6.lanes[0]!.tasks[0]!.name).toBe('Övriga lösa jiror')
-    const markers = result.board.groups.find((g) => g.name === 'Markers')!
-    expect(markers.lanes[0]!.tasks.map((t) => t.name)).toContain('Avstämning')
+    expect(result.board.markers.map((m) => m.label)).toContain('Avstämning')
   })
 
-  it('imports all 3 markers as 1-week tasks in a dedicated Markers group', () => {
+  it('imports all 3 source markers as real, global, instantaneous markers', () => {
     const result = convertRoadmapExport(SAMPLE_EXPORT)
-    const markers = result.board.groups.find((g) => g.name === 'Markers')!
-    expect(markers.lanes).toHaveLength(1)
-    expect(markers.lanes[0]!.tasks).toHaveLength(3)
-    const semester = markers.lanes[0]!.tasks.find((t) => t.name === 'Semester')!
+    expect(result.board.markers).toHaveLength(3)
+    const semester = result.board.markers.find((m) => m.label === 'Semester')!
     expect(semester.year).toBe(2026)
-    expect(semester.start).toBe(semester.end) // zero-width "instant" marker
+    expect(semester).not.toHaveProperty('groupId')
   })
 
   it('also accepts the same payload already decoded (plain JSON)', () => {

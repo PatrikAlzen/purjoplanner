@@ -234,6 +234,56 @@ hovering an empty week-slice of a lane (a "+" hint appears) and clicking it.
   drag" item in `research.md` §13, which would need to solve a similar
   problem (picking a week without a pointer).
 
+## Markers (`shared/types.ts`'s `Marker`, `app/components/board/MarkerOverlay.vue`)
+
+A marker is a labeled point or range shown on the board, independent of any
+task — e.g. a release date or a freeze window. It's either **instantaneous**
+(`end: null`, rendered as a dashed vertical line, the same visual language as
+`TodayMarker`) or **ranged** (`end` set, rendered as a translucent band, the
+same `{year, start, end}` shape and clipping convention as a `Task`). It's
+either **global** (`groupId: null`, drawn across every group) or **scoped to
+one group** (drawn only within that group's own lanes).
+
+- **`taskViewSpan` is reused as-is for markers.** Since `Marker` shares
+  `Task`'s `{year, start, end}` shape, the same sliding-window clipping logic
+  that decides which part of a task is visible in the current 12-month view
+  works unchanged for markers — an instantaneous marker is just passed in as
+  a zero-width range (`end: marker.end ?? marker.start`).
+- **Height is measured from the DOM, not computed from a formula** — the same
+  reasoning as `TodayMarker`'s `height` prop and `rowOffsets` (see Drag &
+  resize below). `RoadmapBoard.vue`'s `measure()` additionally records
+  `groupHeights`, a per-group pixel height keyed by a `data-group-id`
+  attribute on `Group.vue`'s root, by measuring that group's own
+  `.lane-track` elements — a global marker spans `todayMarkerHeight` (the
+  whole board), a scoped one spans only its own group's `groupHeights[id]`.
+- **Rendered once per row-group, not once per row.** A `MarkerOverlay` for a
+  global marker is placed inside the board's overall first lane (guarded by
+  `rowIndexForLane(lane.id) === 0`, alongside `TodayMarker`); a scoped
+  marker's overlay is placed inside its own group's first lane
+  (`isFirstLaneInGroup(lane.id, group.id)`) — in both cases it then visually
+  spans downward past that one lane's row via its own measured `height`,
+  the same trick `TodayMarker` already relies on.
+- **Cascade delete, not a block.** Deleting a group cascade-deletes any
+  markers scoped to it (`deleteGroup` in `board-service.ts`) rather than
+  refusing the delete — a marker is treated as an annotation *on* a group,
+  not content *of* it the way lanes/tasks are (deleting a non-empty lane or
+  group is blocked instead). The client mirrors this in
+  `removeGroup`/`store.ts`, folding the group and its cascaded markers into
+  **one** undo/redo history entry so undoing "remove group" restores both
+  together — including re-pointing each restored marker's `groupId` at the
+  group's freshly re-created id (see the id-ref pattern in Undo/redo below).
+- **`MarkerPanel.vue`** mirrors `TaskPanel.vue`'s structure (debounced label
+  input, `ColorSwatches`, delete-with-confirmation) plus a scope `<select>`
+  (global vs. one specific group) and a ranged/instantaneous checkbox that
+  shows or hides the end-date picker. A new marker is created with sensible
+  defaults (global, instantaneous, today) via the "+ Marker" button in the
+  top bar and immediately opened in the panel for editing — the same
+  create-with-defaults-then-edit flow `addTaskAt` uses for tasks.
+- **The public board view renders markers too** (`PublicBoardView.markers` in
+  `board-service.ts`, filtered to the public window the same way tasks are),
+  but with `MarkerOverlay`'s `readonly` prop set — no `role="button"`,
+  `tabindex`, or click handler, since there's no panel to open there.
+
 ## Importing from another roadmap tool (`server/utils/roadmap-import.ts`)
 
 "Import board…" in `BoardSwitcher.vue`'s menu accepts a paste of another
@@ -273,10 +323,10 @@ roadmap tool's URL-encoded JSON export and creates a brand-new board from it
   more than one year boundary is truncated to this app's own
   one-year-boundary limit rather than rejected (see the note on `end`'s
   range in the Persistence section's task schema, above).
-- **No milestone/marker type exists yet** (see the "Milestones" item in
-  `research.md` §13), so `markers` import as a dedicated "Markers" group
-  containing one lane of 1-week zero-duration tasks — a labeled placeholder,
-  not a real rendering of the concept.
+- **Source `markers` import as real, global, instantaneous `Marker`s** (see
+  the Markers section above) — the source format has no concept of scoping a
+  marker to one lane, so every imported marker gets `groupId: null` regardless
+  of which source "lane" it was nested under.
 - **Creation goes through the normal `createGroup`/`createLane`/`createTask`
   functions**, one item at a time, rather than writing the board's data in
   one bulk operation — deliberately, so every imported item gets exactly the
