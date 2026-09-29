@@ -224,7 +224,7 @@ function onDrop(e: DragEvent) {
 }
 .label-col {
   width: 150px;
-  flex: 0 0 150px;
+  flex: 0 0 500px;
   position: sticky;
   left: 0;
   z-index: 3;
