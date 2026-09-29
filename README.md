@@ -24,6 +24,9 @@ Built with Nuxt 4 (Vue 3 + Nitro), Pinia, and Zod. See
 - Share any board as a read-only, unauthenticated page at `/public/<slug>` via
   the header's Share button — shows a rolling 12-month window (2 months
   before today through 9 months after), no login required.
+- Import a board from another roadmap tool's URL-encoded JSON export via
+  "Import board…" in the board switcher — creates a new board, never
+  touches an existing one, and reports anything it had to skip.
 
 ## Setup
 

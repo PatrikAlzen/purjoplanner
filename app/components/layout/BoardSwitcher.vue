@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useBoardsStore } from '../../stores/boards'
 import { useBoardStore } from '../../stores/board'
 import { fileToAvatarDataUrl } from '../../composables/useAvatar'
+import { useToast } from '../../composables/useToast'
 
 const boardsStore = useBoardsStore()
 const boardStore = useBoardStore()
@@ -12,6 +13,8 @@ const editingId = ref<string | null>(null)
 const editingName = ref('')
 const creating = ref(false)
 const newBoardName = ref('')
+const importing = ref(false)
+const importData = ref('')
 const busy = ref(false)
 const pendingDelete = ref<{ id: string; name: string } | null>(null)
 
@@ -20,6 +23,7 @@ function toggleMenu() {
   if (!menuOpen.value) {
     editingId.value = null
     creating.value = false
+    importing.value = false
   }
 }
 
@@ -83,6 +87,7 @@ async function confirmRemoveBoard() {
 
 function startCreate() {
   creating.value = true
+  importing.value = false
   newBoardName.value = ''
 }
 
@@ -94,6 +99,43 @@ async function commitCreate() {
     const board = await boardsStore.createBoard({ name })
     creating.value = false
     await selectBoard(board.id)
+  } finally {
+    busy.value = false
+  }
+}
+
+function startImport() {
+  importing.value = true
+  creating.value = false
+  importData.value = ''
+}
+
+function cancelImport() {
+  importing.value = false
+  importData.value = ''
+}
+
+async function commitImport() {
+  const data = importData.value.trim()
+  if (!data) return
+  busy.value = true
+  try {
+    const { board, warnings } = await boardsStore.importBoard(data)
+    importing.value = false
+    importData.value = ''
+    if (warnings.length > 0) {
+      useToast().pushMessage(
+        `Imported "${board.name}" with ${warnings.length} item${warnings.length === 1 ? '' : 's'} skipped — see below for details.`,
+        10000
+      )
+      for (const warning of warnings) useToast().pushMessage(warning, 10000)
+    } else {
+      useToast().pushMessage(`Imported "${board.name}".`)
+    }
+    await selectBoard(board.id)
+  } catch {
+    // Error toast already surfaced by the store; leave the pasted text in
+    // place so the user can fix it and try again instead of retyping it.
   } finally {
     busy.value = false
   }
@@ -151,7 +193,22 @@ async function commitCreate() {
         />
         <button class="btn-mini" :disabled="busy" @click="commitCreate">Create</button>
       </div>
-      <button v-else class="menu-item" @click="startCreate">+ New board</button>
+      <div v-else-if="importing" class="import-row">
+        <textarea
+          v-model="importData"
+          class="import-textarea"
+          placeholder="Paste an exported roadmap here…"
+          aria-label="Pasted roadmap data to import"
+        />
+        <div class="import-actions">
+          <button class="icon-btn" title="Cancel" @click="cancelImport">Cancel</button>
+          <button class="btn-mini" :disabled="busy || !importData.trim()" @click="commitImport">Import as new board</button>
+        </div>
+      </div>
+      <template v-else>
+        <button class="menu-item" @click="startCreate">+ New board</button>
+        <button class="menu-item" @click="startImport">⇩ Import board…</button>
+      </template>
     </div>
 
     <ConfirmDialog
@@ -315,5 +372,31 @@ async function commitCreate() {
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
+}
+.btn-mini:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.import-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px;
+}
+.import-textarea {
+  min-height: 80px;
+  resize: vertical;
+  font-size: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 </style>

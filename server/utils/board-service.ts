@@ -16,6 +16,7 @@ import {
   createEmptyBoard
 } from './store'
 import { uniqueSlug } from './slug'
+import { convertRoadmapExport } from './roadmap-import'
 import { parseWithSchema } from './http'
 import {
   groupCreateSchema,
@@ -47,9 +48,8 @@ export async function listBoards(): Promise<{ boards: Board[]; activeBoardId: st
 
 export async function createBoard(input: unknown): Promise<Board> {
   const parsed = parseWithSchema(boardCreateSchema, input)
-  await createEmptyBoard(parsed.name)
-  const result  = await createEmptyBoard(parsed.name)
-  return result.board
+  const { board } = await createEmptyBoard(parsed.name)
+  return board
 }
 
 export async function updateBoard(id: string, input: unknown): Promise<Board> {
@@ -385,4 +385,75 @@ export async function clearActiveThemeIfMatches(themeId: string): Promise<void> 
       board.activeThemeId = DEFAULT_THEME_ID
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Import (from another roadmap tool's URL-encoded export)
+// ---------------------------------------------------------------------------
+
+function describeError(err: unknown): string {
+  const anyErr = err as { statusMessage?: string; message?: string }
+  return anyErr?.statusMessage || anyErr?.message || 'unknown error'
+}
+
+export interface ImportBoardResult {
+  board: Board
+  warnings: string[]
+}
+
+/**
+ * Parses a pasted export from another roadmap tool (see `roadmap-import.ts`
+ * for the expected shape) and creates a brand-new board from it — never
+ * touches any existing board. Goes through the normal
+ * `createGroup`/`createLane`/`createTask` functions one at a time (not a
+ * single bulk write) specifically so every item gets the same validation
+ * and overlap-checking a manually-created one would; anything that still
+ * fails (e.g. an unavoidable overlap after the rowIndex-based lane split
+ * below) is skipped and reported back as a warning rather than aborting the
+ * whole import.
+ */
+export async function importRoadmapExport(input: unknown): Promise<ImportBoardResult> {
+  if (typeof input !== 'string' || input.trim() === '') {
+    throw createError({ statusCode: 400, statusMessage: 'Missing pasted data to import' })
+  }
+
+  let converted: ReturnType<typeof convertRoadmapExport>
+  try {
+    converted = convertRoadmapExport(input)
+  } catch (err) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: err instanceof Error ? err.message : 'Could not parse the pasted data'
+    })
+  }
+
+  const { board } = await createEmptyBoard(converted.board.boardName, { makeActive: true })
+
+  // createEmptyBoard seeds a default group + 3 empty lanes; note their ids
+  // so they can be cleared once the real imported content is in place —
+  // they're never written to, so deleting them (empty-only, like any other
+  // lane/group) is always safe.
+  const seeded = await getBoard()
+  const seedGroupIds = seeded.groups.map((g) => g.id)
+  const seedLaneIds = seeded.lanes.map((l) => l.id)
+
+  const warnings = [...converted.warnings]
+  for (const group of converted.board.groups) {
+    const createdGroup = await createGroup({ name: group.name })
+    for (const lane of group.lanes) {
+      const createdLane = await createLane({ name: lane.name, groupId: createdGroup.id })
+      for (const task of lane.tasks) {
+        try {
+          await createTask({ ...task, laneId: createdLane.id })
+        } catch (err) {
+          warnings.push(`Skipped "${task.name}" in "${group.name} / ${lane.name}": ${describeError(err)}`)
+        }
+      }
+    }
+  }
+
+  for (const laneId of seedLaneIds) await deleteLane(laneId)
+  for (const groupId of seedGroupIds) await deleteGroup(groupId)
+
+  return { board, warnings }
 }

@@ -234,6 +234,57 @@ hovering an empty week-slice of a lane (a "+" hint appears) and clicking it.
   drag" item in `research.md` §13, which would need to solve a similar
   problem (picking a week without a pointer).
 
+## Importing from another roadmap tool (`server/utils/roadmap-import.ts`)
+
+"Import board…" in `BoardSwitcher.vue`'s menu accepts a paste of another
+roadmap tool's URL-encoded JSON export and creates a brand-new board from it
+— it never modifies any existing board.
+
+- **The naming is a false friend across the two tools.** The source format's
+  top-level `title`/`timeline` are the *other* tool's own document metadata
+  and aren't used for anything — every import gets a fixed board name
+  ("Imported board"). More importantly, its `lanes` are really this app's
+  **groups**: each one (e.g. "Prio 1") becomes a group named after its
+  `title`, and each `bar` inside it becomes a **task**. Nothing in the source
+  format maps to this app's own lanes directly — see the rowIndex point
+  below for where they come from instead.
+- **Parsing is deliberately lenient.** The Zod schema only confirms the
+  pasted data has a `lanes` array (rejecting unrelated JSON, but not much
+  else) — everything inside `lanes`/`bars`/`markers` is read field-by-field
+  in plain TypeScript with a fallback for every field, so one malformed item
+  doesn't reject the whole paste. A bar that can't be converted (e.g. an
+  unreadable date) is skipped and recorded in a `warnings` array the caller
+  surfaces as toasts, rather than aborting the import.
+- **The source format has no analog for this app's lanes**, but it does let
+  two bars in the same source "lane" overlap in time by stacking them at
+  different `rowIndex`es (sub-rows drawn within the same row). Since this
+  app's lanes are single-row, `convertRoadmapExport` groups bars by
+  `rowIndex` and gives each distinct one its own lane within the group
+  (`"Lane 1"`, `"Lane 2"`, ...) — the common case (everything at `rowIndex`
+  0, or missing) is just one lane per group.
+- **`duration` is in weeks, not days** — a source-format detail confirmed by
+  the sample data (durations like 4-6 "days" would have made every task
+  under a week long, which didn't match the roadmap they came from). Since
+  this app's own drag granularity is exactly 1 week (1/4 month), the
+  conversion is direct month-fraction arithmetic (`duration / 4`, snapped to
+  the nearest week) rather than real calendar-date math — no day-of-month
+  edge cases to worry about for the *end* date (the *start* date's day still
+  matters, to place it in the right week of its month). A duration spanning
+  more than one year boundary is truncated to this app's own
+  one-year-boundary limit rather than rejected (see the note on `end`'s
+  range in the Persistence section's task schema, above).
+- **No milestone/marker type exists yet** (see the "Milestones" item in
+  `research.md` §13), so `markers` import as a dedicated "Markers" group
+  containing one lane of 1-week zero-duration tasks — a labeled placeholder,
+  not a real rendering of the concept.
+- **Creation goes through the normal `createGroup`/`createLane`/`createTask`
+  functions**, one item at a time, rather than writing the board's data in
+  one bulk operation — deliberately, so every imported item gets exactly the
+  same validation and overlap-checking a manually-created one would. A new
+  board is seeded with a default group + 3 empty lanes
+  (`createEmptyBoard`); the import deletes those once the real content is in
+  place, the same way a user emptying and removing them by hand would.
+
 ## Theming (`app/composables/useTheme.ts`)
 
 Each theme is a flat set of named colors (`Theme.colors`) plus an ordered

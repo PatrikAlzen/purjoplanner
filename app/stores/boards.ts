@@ -91,6 +91,27 @@ export const useBoardsStore = defineStore('boards', {
       }
     },
 
+    // Imports a paste from another roadmap tool's export as a brand-new
+    // board (never touches any existing board) — mirrors createBoard, plus
+    // returns any per-item warnings (e.g. a task skipped for an unavoidable
+    // overlap) for the caller to surface. Like createBoard, doesn't switch
+    // the active board itself; the server already makes the new board
+    // active, so callers should follow up with switchBoard + a board
+    // store reload to bring the client in sync.
+    async importBoard(data: string): Promise<{ board: Board; warnings: string[] }> {
+      try {
+        const result = await $fetch<{ board: Board; warnings: string[] }>('/api/boards/import', {
+          method: 'POST',
+          body: { data }
+        })
+        this.boards.push(result.board)
+        return result
+      } catch (err) {
+        useToast().pushError(errorMessage(err), () => void this.importBoard(data))
+        throw err
+      }
+    },
+
     // Switches the server's active board. Does NOT reload board content
     // (lanes/tasks/theme) itself — callers should follow up with
     // `useBoardStore().load()` once this resolves.
