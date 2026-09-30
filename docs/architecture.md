@@ -227,13 +227,33 @@ raw Pointer Events to closely match the mockup's vanilla-JS interaction model:
 - `computeDragResult()` is a pure function: given pointer deltas, geometry
   (month width / lane height / lane count), and the drag mode
   (`move` | `resize-left` | `resize-right`), it returns the new
-  `{ row, start, end, valid }`. This is unit tested exhaustively (clamping at
-  board edges, minimum 1-month width, row snapping).
+  `{ row, start, end }`. This is unit tested exhaustively (clamping at board
+  edges, minimum 1-month width, row snapping).
 - `useDrag()` wraps that pure function in a stateful controller
   (`start`/`move`/`end`) that `RoadmapBoard.vue` wires to `pointerdown` on a
   `TaskPill` and `pointermove`/`pointerup` on `window`.
 - A drag that ends without meaningful movement is treated as a **click**,
   which opens the `TaskPanel` for that task instead of committing a move.
+- **Row detection has to know each row's real *height*, not just its top —
+  and the pointer's *true* starting position, not an approximation of it.**
+  `rowForVerticalDelta` first checks whether the pointer's actual current
+  position (`DragStartState.origPointerY + dy`) is still within the row the
+  drag started in (`DragGeometry.rowHeights`, measured from the DOM
+  alongside `rowOffsets`) before falling back to "whichever row's top is
+  nearest". This matters once a row can be taller than one track (see
+  "Overlapping tasks" above): a task can now start anywhere within a tall
+  row, not just right at its own top edge, so approximating the pointer's
+  position as "the row's top plus how far it's moved" (as the nearest-top
+  fallback below still does, for backward compatibility) would look like it
+  left the row on the very first pixel of an upward drag — a neighboring
+  row's top can be closer to that approximation than the far side of the
+  current row's own height, so dragging one of several stacked tasks up or
+  down — even just trying to reposition it within its own lane — would
+  incorrectly jump to a different lane instead of staying put. Note this only stops that
+  incorrect jump; which *track* a task lands on within a lane is still
+  decided purely by `shared/packing.ts` from start time, not by where
+  vertically it's dropped — there's no way yet to manually reorder which of
+  several overlapping tasks renders on top.
 
 ## Click-to-add (`app/components/board/AddTaskZone.vue`)
 

@@ -71,6 +71,12 @@ const todayMarkerHeight = ref(0)
 // `row * laneHeight` formula to know which row the pointer is over — see
 // the comment on `DragGeometry.rowOffsets`.
 const rowOffsets = ref<number[]>([])
+// Real height (viewport px) of each lane row's `.lane-track`, parallel to
+// `rowOffsets` — a row holding overlapping tasks can be taller than a
+// one-track neighbor (see `shared/packing.ts`), so `useDrag` needs each
+// row's own height too, not just its top, to know when a vertical drag is
+// still within the row it started in — see `DragGeometry.rowHeights`.
+const rowHeights = ref<number[]>([])
 // Same idea as `todayMarkerHeight`, but per group — a group-scoped marker
 // only spans that group's own lanes, not the whole board. Keyed by group id
 // (see the `data-group-id` attribute on Group.vue's root) rather than
@@ -89,6 +95,7 @@ function measure() {
 
   const tracks = boardEl.value.querySelectorAll<HTMLElement>('.lane-track')
   rowOffsets.value = Array.from(tracks, (t) => t.getBoundingClientRect().top)
+  rowHeights.value = Array.from(tracks, (t) => t.getBoundingClientRect().height)
   if (tracks.length === 0) {
     todayMarkerHeight.value = 0
   } else {
@@ -135,7 +142,8 @@ const controller = useDrag({
     monthWidth: monthWidth.value,
     laneHeight: metrics.value.laneHeight,
     laneCount: laneRows.value.length,
-    rowOffsets: rowOffsets.value
+    rowOffsets: rowOffsets.value,
+    rowHeights: rowHeights.value
   }),
   onPreview: (taskId, result) => {
     dragOverrides.set(taskId, result)

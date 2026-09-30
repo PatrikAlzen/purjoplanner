@@ -19,6 +19,16 @@ export interface DragGeometry {
   // that don't care about grouping can omit it and fall back to the
   // uniform-height approximation below.
   rowOffsets?: number[]
+  // Real height (viewport px) of each lane row, parallel to `rowOffsets`.
+  // A lane holding several overlapping tasks can be much taller than a
+  // one-track neighbor (see `shared/packing.ts`), so simply picking whichever
+  // row's *top* is nearest to the pointer breaks down there: a neighboring
+  // row's top can easily be closer than the far side of the current row's own
+  // (now much taller) height, making the pill jump to a different lane while
+  // the user is still trying to move it within its own. Optional for the
+  // same reason `rowOffsets` is — pure-math callers/tests that don't care can
+  // omit it and fall back to nearest-top-offset matching.
+  rowHeights?: number[]
 }
 
 export interface DragStartState {
@@ -26,6 +36,13 @@ export interface DragStartState {
   origStart: number
   origEnd: number
   origRow: number
+  // The pointer's real absolute Y (viewport px, comparable to `rowOffsets`)
+  // at the moment the drag started. Optional — only needed for the
+  // "stay within my own row" check below, which needs the pointer's *true*
+  // position; everything else here works off of relative deltas. Omit it
+  // (as pure-math callers/tests that don't care about tall rows already do)
+  // to skip that check and fall back to the plain nearest-row-top behavior.
+  origPointerY?: number
 }
 
 export interface DragResult {
@@ -59,10 +76,27 @@ function snapToStep(months: number): number {
 // row's real position is closest handles the uneven spacing across group
 // boundaries correctly. Falls back to a uniform-height approximation
 // (`row * laneHeight`) when `rowOffsets` isn't provided.
-function rowForVerticalDelta(geometry: DragGeometry, origRow: number, dy: number): number {
-  const { rowOffsets, laneHeight, laneCount } = geometry
+function rowForVerticalDelta(geometry: DragGeometry, origRow: number, dy: number, origPointerY?: number): number {
+  const { rowOffsets, rowHeights, laneHeight, laneCount } = geometry
   const origOffset = rowOffsets?.[origRow]
   if (rowOffsets && rowOffsets.length === laneCount && origOffset !== undefined) {
+    // Stay in the row the drag started in as long as the pointer's *actual*
+    // current position is still somewhere within that row's own real height.
+    // This needs the pointer's true position (`origPointerY + dy`), not
+    // `origOffset + dy` (the row's top plus delta) — a task can now start
+    // anywhere within a tall row, not just right at its top (see
+    // `rowHeights`'s own comment above), so approximating the pointer's
+    // position from the row's top would immediately look like it left the
+    // row on the very first pixel of an upward drag whenever the task
+    // wasn't already at the row's own top edge.
+    const origHeight = rowHeights?.[origRow]
+    if (rowHeights && rowHeights.length === laneCount && origHeight !== undefined && origPointerY !== undefined) {
+      const pointerY = origPointerY + dy
+      if (pointerY >= origOffset && pointerY < origOffset + origHeight) {
+        return origRow
+      }
+    }
+
     const targetY = origOffset + dy
     let best = origRow
     let bestDist = Infinity
@@ -100,7 +134,7 @@ export function computeDragResult(startState: DragStartState, dx: number, dy: nu
   if (startState.mode === 'move') {
     start = snapToStep(clamp(startState.origStart + dMonths, 0, MAX_END_MONTH - duration))
     end = snapToStep(start + duration)
-    row = rowForVerticalDelta(geometry, startState.origRow, dy)
+    row = rowForVerticalDelta(geometry, startState.origRow, dy, startState.origPointerY)
   } else if (startState.mode === 'resize-left') {
     start = snapToStep(clamp(startState.origStart + dMonths, 0, startState.origEnd))
     end = startState.origEnd
@@ -164,7 +198,13 @@ export function useDrag(options: UseDragOptions) {
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) active.moved = true
 
     const result = computeDragResult(
-      { mode: active.mode, origStart: active.origStart, origEnd: active.origEnd, origRow: active.origRow },
+      {
+        mode: active.mode,
+        origStart: active.origStart,
+        origEnd: active.origEnd,
+        origRow: active.origRow,
+        origPointerY: active.startY
+      },
       dx,
       dy,
       options.geometry()

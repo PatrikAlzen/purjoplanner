@@ -72,6 +72,68 @@ describe('computeDragResult', () => {
     })
   })
 
+  describe('staying within a tall row (rowHeights + origPointerY) — reordering overlapping tasks', () => {
+    // Row 0 holds 3 overlapping tasks stacked into tracks, so it's much
+    // taller (110px, spanning [100, 210)) than the plain single-track row 1
+    // right below it (64px, spanning [210, 274)). Regression for a bug where
+    // dragging one of the stacked tasks up/down to reorder it among its own
+    // siblings jumped straight to row 1 instead, because row 1's top offset
+    // could be closer to the pointer than the far side of row 0's own (now
+    // much taller) height.
+    const stackedGeometry = {
+      monthWidth: 40,
+      laneHeight: 64,
+      laneCount: 2,
+      rowOffsets: [100, 210],
+      rowHeights: [110, 64]
+    }
+    // The pointer grabbed the bottom-track task, which sits near the bottom
+    // of row 0's own 110px height (not at row 0's top) — this is exactly
+    // the case `origOffset + dy` (the old, wrong approximation) got wrong:
+    // it implicitly assumed every drag starts at its row's own top edge.
+    const pointerNearRowBottom = 195
+
+    it('stays in the tall row while dragging up toward its own top track', () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0, origPointerY: pointerNearRowBottom }
+      // Moving the pointer up by 80px (195 -> 115) is still well within row
+      // 0's own [100, 210) bounds, even though 115 is much closer to row 1's
+      // top offset (210) than the *old* approximation (100 + dy = 20) would
+      // have suggested.
+      const result = computeDragResult(start, 0, -80, stackedGeometry)
+      expect(result.row).toBe(0)
+    })
+
+    it('still switches rows once the pointer truly leaves the tall row', () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0, origPointerY: pointerNearRowBottom }
+      // 195 + 90 = 285, clearly past row 0's bottom (210).
+      const result = computeDragResult(start, 0, 90, stackedGeometry)
+      expect(result.row).toBe(1)
+    })
+
+    it('switches out of a row upward once the pointer leaves its top', () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 1, origPointerY: 230 }
+      // 230 - 150 = 80, well above row 1's own top (210), landing inside row 0.
+      const result = computeDragResult(start, 0, -150, stackedGeometry)
+      expect(result.row).toBe(0)
+    })
+
+    it('falls back to nearest-top matching when origPointerY is omitted', () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0 }
+      // Without origPointerY, the new check can't run at all — behaves like
+      // the plain rowOffsets case: 90px down from row 0 (100 -> 190) is
+      // closer to row 1 (210) than to row 0 (100), so it switches.
+      const result = computeDragResult(start, 0, 90, stackedGeometry)
+      expect(result.row).toBe(1)
+    })
+
+    it('falls back to nearest-top matching when rowHeights is stale (length mismatch)', () => {
+      const stale = { ...stackedGeometry, rowHeights: [110] }
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0, origPointerY: pointerNearRowBottom }
+      const result = computeDragResult(start, 0, 90, stale)
+      expect(result.row).toBe(1)
+    })
+  })
+
   it('resize-left cannot pass the current end', () => {
     const start: DragStartState = { mode: 'resize-left', origStart: 2, origEnd: 4, origRow: 0 }
     const result = computeDragResult(start, 400, 0, geometry)
