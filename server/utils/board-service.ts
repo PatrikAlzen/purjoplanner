@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createError } from 'h3'
 import type { Board, BoardData, Group, Lane, Marker, Task, Theme } from '../../shared/types'
-import { findOverlap } from '../../shared/collision'
 import { taskViewSpan, publicAnchorMonth } from '../../shared/window'
 import {
   mutateBoard,
@@ -293,14 +292,6 @@ export async function createTask(input: unknown): Promise<Task> {
     if (!board.lanes.some((l) => l.id === parsed.laneId)) {
       throw createError({ statusCode: 404, statusMessage: 'Lane not found' })
     }
-    const conflict = findOverlap(board.tasks, parsed.laneId, parsed.year, parsed.start, parsed.end)
-    if (conflict) {
-      throw createError({
-        statusCode: 409,
-        statusMessage: 'Task overlaps with an existing task in this lane',
-        data: { conflictingTaskId: conflict.id }
-      })
-    }
     const ts = nowIso()
     const task: Task = {
       id: randomUUID(),
@@ -338,23 +329,6 @@ export async function updateTask(id: string, input: unknown): Promise<Task> {
     }
     if (nextEnd < nextStart) {
       throw createError({ statusCode: 400, statusMessage: 'end must be >= start' })
-    }
-
-    const rangeOrLaneChanged =
-      parsed.laneId !== undefined ||
-      parsed.year !== undefined ||
-      parsed.start !== undefined ||
-      parsed.end !== undefined
-
-    if (rangeOrLaneChanged) {
-      const conflict = findOverlap(board.tasks, nextLaneId, nextYear, nextStart, nextEnd, task.id)
-      if (conflict) {
-        throw createError({
-          statusCode: 409,
-          statusMessage: 'Task overlaps with an existing task in this lane',
-          data: { conflictingTaskId: conflict.id }
-        })
-      }
     }
 
     if (parsed.name !== undefined) task.name = parsed.name

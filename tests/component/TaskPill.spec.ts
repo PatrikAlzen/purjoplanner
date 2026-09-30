@@ -23,15 +23,22 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 describe('TaskPill', () => {
   it('renders the task name and color', () => {
     const wrapper = mount(TaskPill, {
-      props: { task: makeTask(), monthWidth: 40, invalid: false, dragging: false }
+      props: { task: makeTask(), monthWidth: 40, top: 12, dragging: false }
     })
     expect(wrapper.text()).toContain('Design system v2')
     expect((wrapper.element as HTMLElement).style.background).toBeTruthy()
   })
 
+  it('positions itself at the given top offset (its packed track)', () => {
+    const wrapper = mount(TaskPill, {
+      props: { task: makeTask(), monthWidth: 40, top: 58, dragging: false }
+    })
+    expect((wrapper.element as HTMLElement).style.top).toBe('58px')
+  })
+
   it('hides the link icon when link is empty', () => {
     const wrapper = mount(TaskPill, {
-      props: { task: makeTask({ link: '' }), monthWidth: 40, invalid: false, dragging: false }
+      props: { task: makeTask({ link: '' }), monthWidth: 40, top: 12, dragging: false }
     })
     expect(wrapper.find('a.task-link').exists()).toBe(false)
   })
@@ -41,7 +48,7 @@ describe('TaskPill', () => {
       props: {
         task: makeTask({ link: 'https://wiki.example.com/x' }),
         monthWidth: 40,
-        invalid: false,
+        top: 12,
         dragging: false
       }
     })
@@ -51,17 +58,16 @@ describe('TaskPill', () => {
     expect(link.attributes('rel')).toBe('noopener noreferrer')
   })
 
-  it('applies invalid/dragging classes', () => {
+  it('applies the dragging class', () => {
     const wrapper = mount(TaskPill, {
-      props: { task: makeTask(), monthWidth: 40, invalid: true, dragging: true }
+      props: { task: makeTask(), monthWidth: 40, top: 12, dragging: true }
     })
-    expect(wrapper.classes()).toContain('invalid')
     expect(wrapper.classes()).toContain('dragging')
   })
 
   it('emits pointerdown-move on the pill body', async () => {
     const wrapper = mount(TaskPill, {
-      props: { task: makeTask(), monthWidth: 40, invalid: false, dragging: false }
+      props: { task: makeTask(), monthWidth: 40, top: 12, dragging: false }
     })
     await wrapper.trigger('pointerdown')
     expect(wrapper.emitted('pointerdown-move')).toBeTruthy()

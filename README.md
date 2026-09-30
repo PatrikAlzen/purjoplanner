@@ -13,7 +13,8 @@ Built with Nuxt 4 (Vue 3 + Nitro), Pinia, and Zod. See
 ## Features
 
 - Drag tasks to move them, drag their edges to resize — tasks snap to whole
-  months and cannot overlap another task in the same lane.
+  weeks. Tasks in the same lane can overlap in time; overlapping ones are
+  laid out side by side in a taller lane instead of being blocked.
 - Each task has a name (always visible), a customizable color, an optional
   description and ticket/wiki link (shown when the task panel is open), and
   lives in a named, reorderable lane.

@@ -6,7 +6,12 @@ const props = withDefaults(
   defineProps<{
     task: Task
     monthWidth: number
-    invalid: boolean
+    // This task's vertical position within its lane, in pixels — the lane's
+    // own top edge is 0. Always the lane's single default position unless
+    // the lane holds other tasks that overlap this one in time, in which
+    // case each gets its own stacked track (see `shared/packing.ts` and
+    // RoadmapBoard.vue's `taskTopForTrack`).
+    top: number
     dragging: boolean
     clippedLeft?: boolean
     clippedRight?: boolean
@@ -26,6 +31,7 @@ const emit = defineEmits<{
 
 const style = computed(() => ({
   left: `${props.task.start * props.monthWidth + 4}px`,
+  top: `${props.top}px`,
   width: `${(props.task.end - props.task.start + 1) * props.monthWidth - 8}px`,
   background: props.task.color
 }))
@@ -34,7 +40,7 @@ const style = computed(() => ({
 <template>
   <div
     class="task"
-    :class="{ invalid, dragging, readonly, 'clipped-left': clippedLeft, 'clipped-right': clippedRight }"
+    :class="{ dragging, readonly, 'clipped-left': clippedLeft, 'clipped-right': clippedRight }"
     :style="style"
     :data-task-id="task.id"
     :role="readonly ? undefined : 'button'"
@@ -84,7 +90,6 @@ const style = computed(() => ({
 <style scoped>
 .task {
   position: absolute;
-  top: var(--task-top, 12px);
   height: var(--task-height, 40px);
   border-radius: var(--radius-pill);
   display: flex;
@@ -106,10 +111,6 @@ const style = computed(() => ({
   cursor: grabbing;
   box-shadow: var(--shadow);
   z-index: 10;
-}
-.task.invalid {
-  outline: 2px solid #b34a3c;
-  outline-offset: 2px;
 }
 .task.clipped-left {
   border-top-left-radius: 4px;

@@ -11,6 +11,11 @@ const props = withDefaults(
     dragging?: boolean
     // Public read-only view: no renaming, removing, or drag-to-reorder.
     readonly?: boolean
+    // Overrides the default `--lane-height` CSS var, in pixels — used when
+    // this lane holds overlapping tasks stacked into more than one track
+    // (see `shared/packing.ts`/`useCompactMode.ts`'s `laneHeightForTracks`).
+    // Omitted for a lane with no overlap, which just uses the CSS default.
+    height?: number
   }>(),
   { even: false, dragging: false, readonly: false }
 )
@@ -151,7 +156,7 @@ function onBlur() {
         ×
       </button>
     </div>
-    <div class="track-col lane-track">
+    <div class="track-col lane-track" :style="height !== undefined ? { height: `${height}px` } : undefined">
       <slot />
     </div>
   </div>

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { useBoard } from '../../composables/useBoard'
+import { useBoardStore } from '../../stores/board'
 import { useDrag, WEEKS_PER_MONTH, type DragMode, type DragResult } from '../../composables/useDrag'
 import { useMarkerDrag, type MarkerDragMode, type MarkerDragResult } from '../../composables/useMarkerDrag'
-import { useCompactMode } from '../../composables/useCompactMode'
-import { taskViewSpan, absoluteRange } from '#shared/window'
+import { useCompactMode, laneHeightForTracks } from '../../composables/useCompactMode'
+import { packRanges, trackCount, type PackableRange } from '#shared/packing'
+import { taskViewSpan } from '#shared/window'
 import type { Marker, Task } from '#shared/types'
 
-const STEP_MONTHS = 1 / WEEKS_PER_MONTH
 const NEW_TASK_PALETTE = ['#DF9438', '#2F8F8B', '#C9584A', '#5B6EE1', '#6B8F47', '#8B5FBF', '#5A6B7A', '#C6689A']
 
 const props = defineProps<{
@@ -19,7 +19,7 @@ const emit = defineEmits<{
   (e: 'open-marker', markerId: string): void
 }>()
 
-const { store, isOverlapping } = useBoard()
+const store = useBoardStore()
 const { metrics, cssVars } = useCompactMode()
 
 const laneRows = computed(() => store.sortedLanes)
@@ -129,7 +129,6 @@ onUnmounted(() => {
 // --- Drag state --------------------------------------------------------
 const dragOverrides = reactive(new Map<string, DragResult>())
 const draggingTaskId = ref<string | null>(null)
-const invalidTaskId = ref<string | null>(null)
 
 const controller = useDrag({
   geometry: () => ({
@@ -138,31 +137,13 @@ const controller = useDrag({
     laneCount: laneRows.value.length,
     rowOffsets: rowOffsets.value
   }),
-  isOverlapping: (excludeId, row, start, end) => {
-    const lane = laneRows.value[row]
-    if (!lane) return true
-    const task = store.tasks.find((t) => t.id === excludeId)
-    if (!task) {
-      const { year, start: s, end: e } = toStorage(props.anchorMonth + start, props.anchorMonth + end)
-      return isOverlapping(lane.id, year, s, e, excludeId)
-    }
-    const span = taskViewSpan(task, props.anchorMonth)
-    // A clipped edge means the true edge lies outside the window and isn't
-    // being dragged (its resize handle is hidden); use the task's real value.
-    const absStart = span?.clippedLeft ? task.year * 12 + task.start : props.anchorMonth + start
-    const absEnd = span?.clippedRight ? task.year * 12 + task.end : props.anchorMonth + end
-    const { year, start: s, end: e } = toStorage(absStart, absEnd)
-    return isOverlapping(lane.id, year, s, e, excludeId)
-  },
   onPreview: (taskId, result) => {
     dragOverrides.set(taskId, result)
     draggingTaskId.value = taskId
-    invalidTaskId.value = result.valid ? null : taskId
   },
   onCommit: (taskId, result) => {
     dragOverrides.delete(taskId)
     draggingTaskId.value = null
-    invalidTaskId.value = null
     const lane = laneRows.value[result.row]
     const task = store.tasks.find((t) => t.id === taskId)
     if (!lane || !task) return
@@ -218,6 +199,55 @@ function tasksForRow(rowIndex: number): Task[] {
     const row = override ? override.row : rowIndexForLane(t.laneId)
     return row === rowIndex
   })
+}
+
+// --- Overlapping tasks (side-by-side tracks) ------------------------------
+// Tasks in the same lane are allowed to overlap in time — `shared/packing.ts`
+// assigns each a vertical "track" so overlapping ones stack side by side
+// instead of one being rejected. Packing is computed from whatever's
+// actually on screen right now (the window-clipped position, including a
+// task's live drag-preview position), not the raw stored {year, start, end}:
+// two tasks clipped to the same window either both overlap or neither does,
+// so this is exactly the same overlap relationship as the true one, and it's
+// also the one that must stay visually consistent with what's rendered.
+function rangesForRow(rowIndex: number): PackableRange[] {
+  return tasksForRow(rowIndex).map((task) => {
+    const override = dragOverrides.get(task.id)
+    if (override) return { id: task.id, start: override.start, end: override.end }
+    const span = taskViewSpan(task, props.anchorMonth)
+    return { id: task.id, start: span?.start ?? 0, end: span?.end ?? 0 }
+  })
+}
+
+interface PackedTaskEntry {
+  task: Task
+  clippedLeft: boolean
+  clippedRight: boolean
+  track: number
+}
+
+function packedTasksForRow(rowIndex: number): PackedTaskEntry[] {
+  const tasks = tasksForRow(rowIndex)
+  const trackById = new Map(packRanges(rangesForRow(rowIndex)).map((r) => [r.id, r.track]))
+  return tasks.map((task) => {
+    const span = taskViewSpan(task, props.anchorMonth)
+    return {
+      task,
+      clippedLeft: !!span?.clippedLeft,
+      clippedRight: !!span?.clippedRight,
+      track: trackById.get(task.id) ?? 0
+    }
+  })
+}
+
+// How many stacked tracks this row currently needs — the lane grows taller
+// (via `Lane`'s `height` prop) only while it actually holds overlapping tasks.
+function trackCountForRow(rowIndex: number): number {
+  return Math.max(1, trackCount(rangesForRow(rowIndex)))
+}
+
+function taskTopForTrack(track: number): number {
+  return metrics.value.taskTop + track * (metrics.value.taskHeight + metrics.value.trackGap)
 }
 
 // --- Marker drag/resize --------------------------------------------------
@@ -282,27 +312,14 @@ function displayMarker(marker: Marker): Marker {
 // --- Click-to-add (AddTaskZone) ------------------------------------------
 // AddTaskZone only shows its "+" over pixels not already covered by a task
 // pill (pills paint on top and intercept the pointer there first), so in
-// normal use the exact hovered week is always free. The guard below is a
-// defensive backstop for that assumption rather than something normal
-// hovering can trigger — cheap to check, and the alternative (a raw 409 from
-// the API) would be a confusing way to find out the assumption broke.
+// normal use the exact hovered week is always free — but tasks may now
+// overlap in time within a lane (see the packing helpers above), so there's
+// no need to avoid or clamp around a nearby/underlying task any more; a
+// newly created task always gets the same fixed 1-month-longer default size,
+// and will simply pack into its own track if it does overlap one.
 function addTaskAt(laneId: string, week: number) {
   const absStart = props.anchorMonth + week
-  const { year: pointYear, start: pointStart } = toStorage(absStart, absStart)
-  if (isOverlapping(laneId, pointYear, pointStart, pointStart)) return
-
-  // The *default* 1-month-longer task can still run into a later task in the
-  // same lane — clamp `end` to whatever room is actually free ahead, rather
-  // than let the create 409.
-  let absEnd = absStart + 1
-  for (const task of store.tasks) {
-    if (task.laneId !== laneId) continue
-    const { absStart: otherStart } = absoluteRange(task)
-    if (otherStart > absStart && otherStart - STEP_MONTHS < absEnd) {
-      absEnd = otherStart - STEP_MONTHS
-    }
-  }
-  absEnd = Math.max(absStart, absEnd)
+  const absEnd = absStart + 1
   const { year, start, end } = toStorage(absStart, absEnd)
   const color = NEW_TASK_PALETTE[store.tasks.length % NEW_TASK_PALETTE.length]!
   store
@@ -438,6 +455,7 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
           :name="lane.name"
           :can-remove="!store.laneHasTasks(lane.id)"
           :even="rowIndexForLane(lane.id) % 2 === 1"
+          :height="laneHeightForTracks(metrics, trackCountForRow(rowIndexForLane(lane.id)))"
           :dragging="draggingLaneId === lane.id"
           @rename="(name) => renameLane(lane.id, name)"
           @remove="() => removeLane(lane.id)"
@@ -483,17 +501,17 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
             />
           </template>
           <TaskPill
-            v-for="task in tasksForRow(rowIndexForLane(lane.id))"
-            :key="task.id"
-            :task="displayTask(task)"
+            v-for="entry in packedTasksForRow(rowIndexForLane(lane.id))"
+            :key="entry.task.id"
+            :task="displayTask(entry.task)"
+            :top="taskTopForTrack(entry.track)"
             :month-width="monthWidth"
-            :invalid="invalidTaskId === task.id"
-            :dragging="draggingTaskId === task.id"
-            :clipped-left="!!taskViewSpan(task, anchorMonth)?.clippedLeft"
-            :clipped-right="!!taskViewSpan(task, anchorMonth)?.clippedRight"
-            @pointerdown-move="(e) => startDrag(e, task, 'move')"
-            @pointerdown-resize-left="(e) => startDrag(e, task, 'resize-left')"
-            @pointerdown-resize-right="(e) => startDrag(e, task, 'resize-right')"
+            :dragging="draggingTaskId === entry.task.id"
+            :clipped-left="entry.clippedLeft"
+            :clipped-right="entry.clippedRight"
+            @pointerdown-move="(e) => startDrag(e, entry.task, 'move')"
+            @pointerdown-resize-left="(e) => startDrag(e, entry.task, 'resize-left')"
+            @pointerdown-resize-right="(e) => startDrag(e, entry.task, 'resize-right')"
           />
         </Lane>
 

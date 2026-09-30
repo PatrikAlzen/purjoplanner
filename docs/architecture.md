@@ -19,17 +19,18 @@ tests/          unit, component, api (integration), and e2e (Playwright) tests
 1. On app mount (`app/app.vue`), the Pinia `board` and `theme` stores call their
    `load()` actions, which `$fetch` `GET /api/board` and `GET /api/themes`.
 2. Components read reactive state from the stores via thin composables
-   (`useBoard`, `useTheme`) rather than importing the stores directly, so the
-   view layer stays decoupled from Pinia specifics.
+   (`useTheme`) rather than importing the stores directly, so the view layer
+   stays decoupled from Pinia specifics.
 3. Mutating actions (create/update/delete lane or task, set active theme,
    create/update/delete theme) apply an **optimistic update** to store state,
    call the corresponding API route, and **roll back** the optimistic change if
-   the request fails (e.g. a 409 collision conflict).
+   the request fails (e.g. a 404/409 conflict).
 4. Every API route delegates to `server/utils/board-service.ts` or
    `theme-service.ts`, which validate input with Zod schemas
-   (`server/utils/validation.ts`), enforce invariants (no task overlap in a
-   lane, no orphaned lane references, etc.), and persist via
-   `server/utils/store.ts`.
+   (`server/utils/validation.ts`), enforce invariants (no orphaned lane
+   references, etc.), and persist via `server/utils/store.ts`. Tasks in the
+   same lane are *not* one such invariant — they're allowed to overlap in
+   time (see "Overlapping tasks" below).
 
 ## Persistence (`server/utils/store.ts`)
 
@@ -75,14 +76,52 @@ tests/          unit, component, api (integration), and e2e (Playwright) tests
   write. SQLite's transactions alone don't prevent this: they make the final
   write atomic, but not the read that preceded it.
 
-## Collision detection (`shared/collision.ts`)
+## Overlapping tasks (`shared/packing.ts`)
 
-Pure, framework-agnostic functions (`hasOverlap`, `findOverlap`) determine
-whether a `[start, end]` month range in a given lane/year overlaps an existing
-task (optionally excluding one task id, used when resizing/moving a task
-in place). These are unit tested in isolation and reused both by the server
-(to reject invalid mutations) and the client (to preview drag validity and to
-find the first free lane for a new task).
+Tasks in the same lane are allowed to overlap in time — the server used to
+reject this with a 409 (`shared/collision.ts`'s `hasOverlap`/`findOverlap`,
+since removed), but overlapping tasks are now laid out side by side within a
+taller lane instead.
+
+- **`packRanges`/`trackCount`** are pure, calendar-agnostic functions —
+  greedy interval-graph coloring, the same technique calendar apps use to lay
+  out overlapping day-view events. Given a set of `{id, start, end}` ranges,
+  `packRanges` assigns each a 0-based `track` such that no two sharing a
+  track overlap, using the minimum number of tracks possible; `trackCount`
+  is just the resulting track count. Both are unit tested in isolation, with
+  no knowledge of tasks, years, or pixels — callers decide what coordinate
+  space to compare in.
+- **`RoadmapBoard.vue`/`PublicRoadmapBoard.vue` each pack using
+  window-clipped, on-screen positions**, not a task's raw `{year, start,
+  end}` — two tasks clipped to the same 12-month window either both overlap
+  or neither does, so this yields the same overlap relationships as the true
+  ones, and it's also the coordinate space that must stay visually
+  consistent with what's rendered (including a task's live drag-preview
+  position while it's being dragged, so the rest of the lane visibly
+  reflows in real time).
+- **A lane's height is no longer a single fixed constant.** `useCompactMode.ts`'s
+  `laneHeightForTracks(metrics, tracks)` computes how tall a lane needs to be
+  to fit `tracks` stacked rows (`tracks <= 1` gives back the ordinary
+  `laneHeight`, so a lane with no overlap is unaffected); `Lane.vue` accepts
+  an optional `height` prop overriding its default CSS height accordingly,
+  and `TaskPill.vue` takes an explicit `top` prop (`taskTopForTrack`) instead
+  of a single global CSS var, since each task's vertical position now depends
+  on which track it packed into.
+- **This composes for free with existing DOM-measured heights.** `measure()`
+  in `RoadmapBoard.vue`/`PublicRoadmapBoard.vue` (see Drag & resize below)
+  already reads real rendered `.lane-track` heights rather than a formula, so
+  a lane growing taller to fit more tracks is picked up automatically by the
+  same `ResizeObserver` that already watches for any other size change —
+  nothing needed to change there for `TodayMarker`/`MarkerOverlay` heights to
+  keep working.
+- **Dragging/resizing no longer has an "invalid" state.** `useDrag.ts`'s
+  `computeDragResult` used to take an `isOverlapping` callback and return a
+  `valid` flag driving a red outline and a revert-on-drop; both are gone —
+  every position a drag can compute is now a valid one to drop at.
+- **Click-to-add (`AddTaskZone`, see below) no longer avoids or clamps
+  around a nearby task.** A newly created task always gets the same fixed
+  default size and simply packs into its own track if it does end up
+  overlapping one.
 
 ## Access control (`server/middleware/auth.ts`)
 
@@ -209,25 +248,22 @@ hovering an empty week-slice of a lane (a "+" hint appears) and clicking it.
   on click.
 - **It relies on normal DOM stacking, not on computing occupancy itself.**
   Because `TaskPill`s paint on top of it and aren't `pointer-events: none`,
-  hovering/clicking over an existing task is captured by that task's pill
-  first and never reaches the zone underneath — so the "+" can only ever
-  appear over pixels that are genuinely free, with no need to duplicate
-  `hasOverlap`-style collision math just to decide where to show it.
+  hovering/clicking over an existing task's own track is captured by that
+  task's pill first and never reaches the zone underneath — so the "+" only
+  ever appears over pixels not already covered by a pill. Since tasks in a
+  lane may now overlap in time on separate tracks (see "Overlapping tasks"
+  above), a "genuinely free" pixel here means free of any *pill*, not
+  necessarily free of any task at that time — clicking it can still create a
+  task that time-overlaps one in another track, which is fine; it just packs
+  into its own track too.
 - `RoadmapBoard.vue`'s `addTaskAt(laneId, week)` handles the emitted `add`:
   converts the window-relative `week` to an absolute month via
-  `anchorMonth`, creates a task there via the board store (same default
-  1-month-longer size the old button used), and emits `open-task` to open the
-  panel on it — mirroring the old button's "create immediately, then let the
-  user fill in details" flow, just anchored to a specific lane/week instead
-  of "wherever there's room."
-- Two things the DOM-stacking trick above doesn't cover on its own: the
-  *default* duration can still run into a later task in the same lane
-  (`addTaskAt` clamps `end` to whatever room is actually free ahead, rather
-  than let the create 409), and there's a defensive `isOverlapping` check
-  against the exact hovered point as a backstop against the stacking
-  assumption ever being wrong (e.g. a future change making a pill
-  `pointer-events: none`) — cheap to check, and quieter than a raw 409 would
-  be if it ever fired.
+  `anchorMonth`, creates a task there via the board store (the same fixed
+  1-month-longer default size regardless of what else is nearby — see
+  "Overlapping tasks" above), and emits `open-task` to open the panel on it —
+  mirroring the old button's "create immediately, then let the user fill in
+  details" flow, just anchored to a specific lane/week instead of "wherever
+  there's room."
 - Trade-off worth knowing: this removed the only *keyboard*-accessible way to
   create a task (the old button was a real, tabbable `<button>`). Hovering a
   specific week has no keyboard equivalent yet — see the "Keyboard-accessible
@@ -355,7 +391,7 @@ roadmap tool's URL-encoded JSON export and creates a brand-new board from it
 - **Creation goes through the normal `createGroup`/`createLane`/`createTask`
   functions**, one item at a time, rather than writing the board's data in
   one bulk operation — deliberately, so every imported item gets exactly the
-  same validation and overlap-checking a manually-created one would. A new
+  same validation a manually-created one would. A new
   board is seeded with a default group + 3 empty lanes
   (`createEmptyBoard`); the import deletes those once the real content is in
   place, the same way a user emptying and removing them by hand would.

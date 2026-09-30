@@ -10,12 +10,17 @@ import { useUiStore } from '../stores/ui'
  * drift out of sync.
  */
 export interface BoardMetrics {
+  // Height of a lane holding exactly one track of tasks (no overlap) — see
+  // `laneHeightForTracks` for lanes holding more.
   laneHeight: number
   groupHeaderHeight: number
   groupGap: number
   groupBodyPadding: number
   taskHeight: number
   taskTop: number
+  // Vertical gap between two stacked tracks in the same lane, when tasks in
+  // it overlap in time (see `shared/packing.ts` and `laneHeightForTracks`).
+  trackGap: number
 }
 
 // Exported (rather than kept module-private) so the public read-only board
@@ -28,7 +33,8 @@ export const NORMAL_METRICS: BoardMetrics = {
   groupGap: 16,
   groupBodyPadding: 10,
   taskHeight: 40,
-  taskTop: 12
+  taskTop: 12,
+  trackGap: 6
 }
 
 // Also exported: the public read-only board view defaults to compact
@@ -39,7 +45,19 @@ export const COMPACT_METRICS: BoardMetrics = {
   groupGap: 8,
   groupBodyPadding: 4,
   taskHeight: 24,
-  taskTop: 6
+  taskTop: 6,
+  trackGap: 3
+}
+
+/**
+ * A lane's required height to fit `tracks` stacked rows of tasks (see
+ * `shared/packing.ts` — a lane holding overlapping tasks needs more than one
+ * track). `tracks <= 1` gives back exactly `metrics.laneHeight`, so a lane
+ * with no overlapping tasks is unaffected by this feature at all.
+ */
+export function laneHeightForTracks(metrics: BoardMetrics, tracks: number): number {
+  const n = Math.max(1, tracks)
+  return metrics.taskTop * 2 + n * metrics.taskHeight + (n - 1) * metrics.trackGap
 }
 
 export function metricsToCssVars(metrics: BoardMetrics): Record<string, string> {

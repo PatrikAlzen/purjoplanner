@@ -10,12 +10,14 @@ export interface DragGeometry {
   // Real top offset (viewport px — comparable to PointerEvent.clientY) of
   // each lane row, as measured from the DOM. Rows in different groups aren't
   // evenly spaced (a group header, margin, and body padding sit between the
-  // last lane of one group and the first lane of the next), so a uniform
-  // `row * laneHeight` formula falls behind the real layout as soon as a
-  // drag crosses a group boundary — the pill would jump further than the
-  // pointer actually moved, desyncing the two. Optional so pure-math
-  // callers/tests that don't care about grouping can omit it and fall back
-  // to the uniform-height approximation below.
+  // last lane of one group and the first lane of the next — and, since
+  // overlapping tasks stack into extra tracks, lanes themselves can now be
+  // taller than one another too), so a uniform `row * laneHeight` formula
+  // falls behind the real layout as soon as a drag crosses a group boundary
+  // or a taller lane — the pill would jump further than the pointer
+  // actually moved, desyncing the two. Optional so pure-math callers/tests
+  // that don't care about grouping can omit it and fall back to the
+  // uniform-height approximation below.
   rowOffsets?: number[]
 }
 
@@ -30,7 +32,6 @@ export interface DragResult {
   start: number
   end: number
   row: number
-  valid: boolean
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -81,17 +82,12 @@ function rowForVerticalDelta(geometry: DragGeometry, origRow: number, dy: number
 /**
  * Given the drag's starting state and the current pointer delta (in pixels),
  * computes the proposed new [start, end, row] for a task, clamped to the
- * 0-11 month grid (in week-sized steps) and the available lane rows, plus
- * whether that position is valid (i.e. doesn't overlap another task), as
- * reported by `isOverlapping`.
+ * 0-11 month grid (in week-sized steps) and the available lane rows. Tasks
+ * are allowed to overlap one another within a lane (see `shared/packing.ts`,
+ * which lays overlapping tasks out side by side), so there's no validity
+ * check here — every position this can compute is a valid one.
  */
-export function computeDragResult(
-  startState: DragStartState,
-  dx: number,
-  dy: number,
-  geometry: DragGeometry,
-  isOverlapping: (row: number, start: number, end: number) => boolean
-): DragResult {
+export function computeDragResult(startState: DragStartState, dx: number, dy: number, geometry: DragGeometry): DragResult {
   const weekWidth = geometry.monthWidth / WEEKS_PER_MONTH
   const dWeeks = weekWidth > 0 ? Math.round(dx / weekWidth) : 0
   const dMonths = dWeeks * STEP_MONTHS
@@ -113,13 +109,11 @@ export function computeDragResult(
     end = snapToStep(clamp(startState.origEnd + dMonths, startState.origStart, MAX_END_MONTH))
   }
 
-  const valid = !isOverlapping(row, start, end)
-  return { start, end, row, valid }
+  return { start, end, row }
 }
 
 export interface UseDragOptions {
   geometry: () => DragGeometry
-  isOverlapping: (excludeId: string, row: number, start: number, end: number) => boolean
   onPreview: (taskId: string, result: DragResult) => void
   onCommit: (taskId: string, result: DragResult) => void
   onClick: (taskId: string) => void
@@ -134,7 +128,7 @@ interface ActiveDrag {
   origEnd: number
   origRow: number
   moved: boolean
-  lastValid: { start: number; end: number; row: number }
+  last: DragResult
 }
 
 /**
@@ -159,7 +153,7 @@ export function useDrag(options: UseDragOptions) {
       origEnd: task.end,
       origRow: task.row,
       moved: false,
-      lastValid: { start: task.start, end: task.end, row: task.row }
+      last: { start: task.start, end: task.end, row: task.row }
     }
   }
 
@@ -173,23 +167,22 @@ export function useDrag(options: UseDragOptions) {
       { mode: active.mode, origStart: active.origStart, origEnd: active.origEnd, origRow: active.origRow },
       dx,
       dy,
-      options.geometry(),
-      (row, start, end) => options.isOverlapping(active!.taskId, row, start, end)
+      options.geometry()
     )
 
-    if (result.valid) active.lastValid = { start: result.start, end: result.end, row: result.row }
+    active.last = result
     options.onPreview(active.taskId, result)
   }
 
   function end() {
     if (!active) return
-    const { taskId, moved, mode, lastValid } = active
+    const { taskId, moved, mode, last } = active
     active = null
     if (!moved && mode === 'move') {
       options.onClick(taskId)
       return
     }
-    options.onCommit(taskId, { ...lastValid, valid: true })
+    options.onCommit(taskId, last)
   }
 
   function isDragging() {

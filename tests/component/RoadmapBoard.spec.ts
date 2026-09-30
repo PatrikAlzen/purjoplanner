@@ -129,8 +129,8 @@ describe('RoadmapBoard', () => {
       expect(wrapper.emitted('open-task')?.[0]).toEqual(['new-t'])
     })
 
-    it('does not create a task if the hovered point falls inside an existing task (defensive guard)', async () => {
-      const fetchMock = vi.fn()
+    it('creates an overlapping task when the hovered point falls inside an existing task (overlaps are allowed)', async () => {
+      const fetchMock = stubCreate()
       vi.stubGlobal('$fetch', fetchMock)
       // Lane 1 already has a task covering start 0-2.
       seedStore()
@@ -140,10 +140,16 @@ describe('RoadmapBoard', () => {
       await laneTracks[0]!.find('.add-zone').trigger('click', { clientX: 0, clientY: 0 })
       await flushPromises()
 
-      expect(fetchMock).not.toHaveBeenCalled()
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.objectContaining({ laneId: 'l1', year: 2026, start: 0, end: 1 })
+        })
+      )
     })
 
-    it("clamps the new task's end to avoid overlapping a later task in the same lane", async () => {
+    it("does not clamp the new task's default duration even when a later task is nearby (overlapping it is fine)", async () => {
       const fetchMock = stubCreate()
       vi.stubGlobal('$fetch', fetchMock)
       const store = seedStore()
@@ -171,9 +177,59 @@ describe('RoadmapBoard', () => {
         '/api/tasks',
         expect.objectContaining({
           method: 'POST',
-          body: expect.objectContaining({ laneId: 'l2', start: 0, end: 0.25 })
+          body: expect.objectContaining({ laneId: 'l2', start: 0, end: 1 })
         })
       )
+    })
+  })
+
+  describe('overlapping tasks (side-by-side tracks)', () => {
+    it('stacks two time-overlapping tasks in the same lane onto separate tracks', () => {
+      vi.stubGlobal('$fetch', vi.fn())
+      const store = seedStore()
+      // t1 already covers start 0-2; add one overlapping it.
+      store.tasks.push({
+        id: 't2',
+        name: 'Overlapping',
+        color: '#2F8F8B',
+        laneId: 'l1',
+        start: 1,
+        end: 3,
+        year: 2026,
+        description: '',
+        link: '',
+        createdAt: '',
+        updatedAt: ''
+      })
+      const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
+
+      const pills = wrapper.findAll('[data-task-id]')
+      expect(pills).toHaveLength(2)
+      const tops = pills.map((p) => (p.element as HTMLElement).style.top)
+      expect(new Set(tops).size).toBe(2)
+    })
+
+    it('does not stack two non-overlapping tasks in the same lane (same track/top)', () => {
+      vi.stubGlobal('$fetch', vi.fn())
+      const store = seedStore()
+      store.tasks.push({
+        id: 't2',
+        name: 'Later',
+        color: '#2F8F8B',
+        laneId: 'l1',
+        start: 3,
+        end: 4,
+        year: 2026,
+        description: '',
+        link: '',
+        createdAt: '',
+        updatedAt: ''
+      })
+      const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
+
+      const pills = wrapper.findAll('[data-task-id]')
+      const tops = pills.map((p) => (p.element as HTMLElement).style.top)
+      expect(new Set(tops).size).toBe(1)
     })
   })
 

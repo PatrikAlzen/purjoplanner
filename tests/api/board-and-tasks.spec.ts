@@ -94,7 +94,7 @@ describe('board, lane and task API', () => {
     expect(board.groups.find((g: any) => g.id === group.id)).toBeUndefined()
   })
 
-  it('creates a task, rejects overlaps, and updates/deletes it', async () => {
+  it('creates a task, allows an overlapping one in the same lane, and updates/deletes it', async () => {
     const board = await authedFetch('/api/board')
     const laneId = board.lanes[0].id
 
@@ -105,12 +105,13 @@ describe('board, lane and task API', () => {
     expect(task.name).toBe('Design')
     expect(task.id).toBeTruthy()
 
-    await expect(
-      authedFetch('/api/tasks', {
-        method: 'POST',
-        body: { name: 'Overlap', color: '#2F8F8B', laneId, start: 1, end: 3, year: 2026 }
-      })
-    ).rejects.toMatchObject({ response: { status: 409 } })
+    // Tasks in the same lane may overlap in time — they're laid out side by
+    // side (see shared/packing.ts) rather than being rejected.
+    const overlapping = await authedFetch('/api/tasks', {
+      method: 'POST',
+      body: { name: 'Overlap', color: '#2F8F8B', laneId, start: 1, end: 3, year: 2026 }
+    })
+    expect(overlapping.id).toBeTruthy()
 
     const nonOverlapping = await authedFetch('/api/tasks', {
       method: 'POST',
@@ -124,6 +125,14 @@ describe('board, lane and task API', () => {
     })
     expect(updated.name).toBe('Design (renamed)')
     expect(updated.description).toBe('Updated description')
+
+    // Moving it to fully overlap the "Later" task is also allowed.
+    const moved = await authedFetch(`/api/tasks/${task.id}`, {
+      method: 'PATCH',
+      body: { start: 3, end: 4 }
+    })
+    expect(moved.start).toBe(3)
+    expect(moved.end).toBe(4)
 
     await authedFetch(`/api/tasks/${task.id}`, { method: 'DELETE' })
     const afterDelete = await authedFetch('/api/board')

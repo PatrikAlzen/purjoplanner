@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { taskViewSpan } from '#shared/window'
-import { COMPACT_METRICS, metricsToCssVars } from '../../composables/useCompactMode'
+import { COMPACT_METRICS, metricsToCssVars, laneHeightForTracks } from '../../composables/useCompactMode'
+import { packRanges, trackCount, type PackableRange } from '#shared/packing'
 import type { Group, Lane, Marker, Task } from '#shared/types'
 
 const props = defineProps<{
@@ -46,6 +47,46 @@ function displayTask(task: Task): Task {
   const span = taskViewSpan(task, props.anchorMonth)
   if (!span) return task
   return { ...task, start: span.start, end: span.end }
+}
+
+// --- Overlapping tasks (side-by-side tracks) ------------------------------
+// See the identical helpers on RoadmapBoard.vue for the full reasoning —
+// tasks in the same lane may overlap in time, so each gets a packed vertical
+// track rather than one being rejected.
+function rangesForLane(laneId: string): PackableRange[] {
+  return tasksForLane(laneId).map((task) => {
+    const span = taskViewSpan(task, props.anchorMonth)
+    return { id: task.id, start: span?.start ?? 0, end: span?.end ?? 0 }
+  })
+}
+
+interface PackedTaskEntry {
+  task: Task
+  clippedLeft: boolean
+  clippedRight: boolean
+  track: number
+}
+
+function packedTasksForLane(laneId: string): PackedTaskEntry[] {
+  const tasks = tasksForLane(laneId)
+  const trackById = new Map(packRanges(rangesForLane(laneId)).map((r) => [r.id, r.track]))
+  return tasks.map((task) => {
+    const span = taskViewSpan(task, props.anchorMonth)
+    return {
+      task,
+      clippedLeft: !!span?.clippedLeft,
+      clippedRight: !!span?.clippedRight,
+      track: trackById.get(task.id) ?? 0
+    }
+  })
+}
+
+function trackCountForLane(laneId: string): number {
+  return Math.max(1, trackCount(rangesForLane(laneId)))
+}
+
+function taskTopForTrack(track: number): number {
+  return COMPACT_METRICS.taskTop + track * (COMPACT_METRICS.taskHeight + COMPACT_METRICS.trackGap)
 }
 
 // --- Geometry (mirrors RoadmapBoard.vue's measurement, minus drag concerns) --
@@ -127,6 +168,7 @@ onUnmounted(() => {
             :name="lane.name"
             :can-remove="false"
             :even="rowIndexForLane(lane.id) % 2 === 1"
+            :height="laneHeightForTracks(COMPACT_METRICS, trackCountForLane(lane.id))"
             readonly
           >
             <TodayMarker
@@ -158,14 +200,14 @@ onUnmounted(() => {
               />
             </template>
             <TaskPill
-              v-for="task in tasksForLane(lane.id)"
-              :key="task.id"
-              :task="displayTask(task)"
+              v-for="entry in packedTasksForLane(lane.id)"
+              :key="entry.task.id"
+              :task="displayTask(entry.task)"
+              :top="taskTopForTrack(entry.track)"
               :month-width="monthWidth"
-              :invalid="false"
               :dragging="false"
-              :clipped-left="!!taskViewSpan(task, anchorMonth)?.clippedLeft"
-              :clipped-right="!!taskViewSpan(task, anchorMonth)?.clippedRight"
+              :clipped-left="entry.clippedLeft"
+              :clipped-right="entry.clippedRight"
               readonly
             />
           </Lane>
