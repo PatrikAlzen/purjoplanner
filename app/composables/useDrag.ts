@@ -80,28 +80,32 @@ function rowForVerticalDelta(geometry: DragGeometry, origRow: number, dy: number
   const { rowOffsets, rowHeights, laneHeight, laneCount } = geometry
   const origOffset = rowOffsets?.[origRow]
   if (rowOffsets && rowOffsets.length === laneCount && origOffset !== undefined) {
-    // Stay in the row the drag started in as long as the pointer's *actual*
-    // current position is still somewhere within that row's own real height.
-    // This needs the pointer's true position (`origPointerY + dy`), not
-    // `origOffset + dy` (the row's top plus delta) — a task can now start
-    // anywhere within a tall row, not just right at its top (see
-    // `rowHeights`'s own comment above), so approximating the pointer's
-    // position from the row's top would immediately look like it left the
-    // row on the very first pixel of an upward drag whenever the task
-    // wasn't already at the row's own top edge.
-    const origHeight = rowHeights?.[origRow]
-    if (rowHeights && rowHeights.length === laneCount && origHeight !== undefined && origPointerY !== undefined) {
-      const pointerY = origPointerY + dy
-      if (pointerY >= origOffset && pointerY < origOffset + origHeight) {
-        return origRow
-      }
+    // The pointer's *actual* current position (`origPointerY + dy`) when
+    // available, not `origOffset + dy` (the origin row's top plus delta) —
+    // a task can now start anywhere within a tall row, not just right at
+    // its top (see `rowHeights`'s own comment above), so approximating the
+    // pointer's position from the origin row's top drifts further out of
+    // sync with reality the taller that row is. Only pure-math callers/tests
+    // that don't supply `origPointerY` fall back to the old approximation.
+    const referenceY = origPointerY !== undefined ? origPointerY + dy : origOffset + dy
+
+    // Prefer whichever row's own real [top, top+height) range actually
+    // contains that position — checked against *every* row, not just the
+    // one the drag started in. A tall row's far edge can be much closer, by
+    // raw top-to-top distance, to a neighboring row's top than to its own —
+    // checking containment first (falling back to nearest-top only for a
+    // genuine gap, e.g. the margin between two group cards) is what keeps a
+    // drag from jumping clean over a tall row's near half, whether that row
+    // is the one the drag started in or the one it's headed into.
+    if (origPointerY !== undefined && rowHeights && rowHeights.length === laneCount) {
+      const containing = rowOffsets.findIndex((top, i) => referenceY >= top && referenceY < top + rowHeights[i]!)
+      if (containing !== -1) return containing
     }
 
-    const targetY = origOffset + dy
     let best = origRow
     let bestDist = Infinity
     for (let i = 0; i < rowOffsets.length; i++) {
-      const dist = Math.abs(rowOffsets[i]! - targetY)
+      const dist = Math.abs(rowOffsets[i]! - referenceY)
       if (dist < bestDist) {
         bestDist = dist
         best = i

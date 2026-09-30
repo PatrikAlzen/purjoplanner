@@ -44,6 +44,7 @@ describe('TaskPanel', () => {
         year: 2026,
         description: 'A description',
         link: 'https://wiki.example.com/x',
+        order: 0,
         createdAt: '',
         updatedAt: ''
       }
@@ -71,6 +72,7 @@ describe('TaskPanel', () => {
         year: 2026,
         description: '',
         link: '',
+        order: 0,
         createdAt: '',
         updatedAt: ''
       }
@@ -96,6 +98,7 @@ describe('TaskPanel', () => {
         year: 2026,
         description: '',
         link: '',
+        order: 0,
         createdAt: '',
         updatedAt: ''
       }

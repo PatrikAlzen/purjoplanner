@@ -104,6 +104,8 @@ describe('board, lane and task API', () => {
     })
     expect(task.name).toBe('Design')
     expect(task.id).toBeTruthy()
+    // Defaults to 0 (falls back to sorting by start time) until manually reordered.
+    expect(task.order).toBe(0)
 
     // Tasks in the same lane may overlap in time — they're laid out side by
     // side (see shared/packing.ts) rather than being rejected.
@@ -137,6 +139,20 @@ describe('board, lane and task API', () => {
     await authedFetch(`/api/tasks/${task.id}`, { method: 'DELETE' })
     const afterDelete = await authedFetch('/api/board')
     expect(afterDelete.tasks.find((t: any) => t.id === task.id)).toBeUndefined()
+  })
+
+  it('accepts a manual `order` on create and lets it be changed via PATCH', async () => {
+    const board = await authedFetch('/api/board')
+    const laneId = board.lanes[0].id
+
+    const task = await authedFetch('/api/tasks', {
+      method: 'POST',
+      body: { name: 'Reordered', color: '#DF9438', laneId, start: 0, end: 2, year: 2026, order: 2.5 }
+    })
+    expect(task.order).toBe(2.5)
+
+    const updated = await authedFetch(`/api/tasks/${task.id}`, { method: 'PATCH', body: { order: -1 } })
+    expect(updated.order).toBe(-1)
   })
 
   it('404s when updating a non-existent task', async () => {

@@ -56,7 +56,7 @@ function displayTask(task: Task): Task {
 function rangesForLane(laneId: string): PackableRange[] {
   return tasksForLane(laneId).map((task) => {
     const span = taskViewSpan(task, props.anchorMonth)
-    return { id: task.id, start: span?.start ?? 0, end: span?.end ?? 0 }
+    return { id: task.id, start: span?.start ?? 0, end: span?.end ?? 0, order: task.order }
   })
 }
 

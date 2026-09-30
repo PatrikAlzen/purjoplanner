@@ -122,6 +122,70 @@ taller lane instead.
   around a nearby task.** A newly created task always gets the same fixed
   default size and simply packs into its own track if it does end up
   overlapping one.
+- **Manual stacking order (`Task.order`)** lets a user override which track
+  an overlapping task lands on, rather than always following start time.
+  Every task defaults to `order: 0`, in which case `packRanges`'s sort falls
+  straight through to start time (its secondary key) — so an untouched
+  board's stacking is exactly what it always was. Dragging a task vertically
+  — within its own lane, *or* into a different one (a plain move already
+  repacks the lane it lands in, so it gets a track there just like any other
+  task; there's no reason its own drop position within that new lane
+  shouldn't count too) — computes new `order` values on drop and persists
+  them via the normal `updateTask`, which means each gets undo/redo for free
+  like any other field edit.
+  - `RoadmapBoard.vue`'s `insertIndexForPointerY` turns the drop's final
+    pointer Y into a slot index among the task's *other* tasks in that row
+    (0 = before the first, `siblings.length` = after the last) using the
+    same `taskHeight`/`trackGap` step `taskTopForTrack` renders with.
+  - **Built from `rangesForRow`'s window-relative ranges, not the raw `Task`
+    objects' own stored `{year, start, end}`.** Two things break if it
+    compares raw task fields directly: (1) when the drop lands in a lane the
+    task wasn't already in, that lane's own `tasksForRow` doesn't include it
+    yet — the store's `laneId` for it is still the old lane at the point this
+    runs (`dragOverrides` was already cleared) — so looking it up there finds
+    nothing; passing its `{order, start, end}` in directly (`result.start`/
+    `.end`, the very same window-relative coordinates the drag itself just
+    computed) sidesteps the lookup entirely. (2) two tasks can have
+    overlapping on-screen positions while spanning different storage
+    `year`s, whose raw `start` values (0-11, relative to their own year)
+    aren't directly comparable the way their shared window-relative
+    positions are.
+  - **`reorderPlanForDrop` renumbers the whole affected cluster, not just the
+    dragged task.** The obvious approach — `orderBetween` the two neighboring
+    order values, the same "insert between two existing values" helper
+    Lane/Group drag-reordering already uses — doesn't work here: every task
+    defaults to the *same* order (0), so its neighbors very often share that
+    tied value too, and the midpoint of two equal numbers is that same number
+    again. Persisting it wouldn't actually move the task past its tied
+    neighbors, since their relative order would still fall back to the
+    start-time tie-break unchanged. The only way to guarantee landing in the
+    requested slot is to renumber the whole tied cluster to fresh, distinct,
+    consecutive integers matching the new arrangement — `reorderPlanForDrop`
+    returns one `{id, order}` entry per task whose order actually needs to
+    change to realize that (often *not* including the dragged task itself,
+    if the arrangement can be achieved by bumping its neighbors instead), and
+    `onCommit` fires one `updateTask` per entry.
+  - **Comparing sort *position*, not the raw `order` value, is what makes a
+    same-spot drop a no-op.** For the identical tied-values reason above, two
+    different `order` numbers can still sort into the same relative position
+    — so the no-op check merges the dragged task back into its siblings using
+    its own *current* order/start/end, finds which gap it already occupies,
+    and only computes a plan at all when the drop actually targets a
+    different gap.
+  - A resize drag's own vertical drift is ignored (reordering only applies
+    to a `move`), since a resize is meant to be a horizontal-only gesture and
+    a pixel or two of accidental vertical movement shouldn't also reshuffle
+    the task being resized.
+  - **Live preview while dragging**: a task's on-screen `top` normally comes
+    entirely from `packedTasksForRow`'s computed track, which only changes
+    once a drop actually persists a new `order` — so without further work, a
+    task being dragged vertically to reorder it wouldn't move on screen at
+    all until release, making it impossible to judge where it would land.
+    `draggingTaskTop` (updated on every `pointermove` via
+    `updateDraggingTaskTop`) tracks the pointer continuously within whichever
+    row it's currently over and overrides the dragged `TaskPill`'s `top`
+    while a move-drag is active, snapping back to the real computed track
+    only once the drag ends.
 
 ## Access control (`server/middleware/auth.ts`)
 
@@ -235,25 +299,36 @@ raw Pointer Events to closely match the mockup's vanilla-JS interaction model:
 - A drag that ends without meaningful movement is treated as a **click**,
   which opens the `TaskPanel` for that task instead of committing a move.
 - **Row detection has to know each row's real *height*, not just its top —
-  and the pointer's *true* starting position, not an approximation of it.**
-  `rowForVerticalDelta` first checks whether the pointer's actual current
-  position (`DragStartState.origPointerY + dy`) is still within the row the
-  drag started in (`DragGeometry.rowHeights`, measured from the DOM
-  alongside `rowOffsets`) before falling back to "whichever row's top is
-  nearest". This matters once a row can be taller than one track (see
-  "Overlapping tasks" above): a task can now start anywhere within a tall
-  row, not just right at its own top edge, so approximating the pointer's
-  position as "the row's top plus how far it's moved" (as the nearest-top
-  fallback below still does, for backward compatibility) would look like it
-  left the row on the very first pixel of an upward drag — a neighboring
-  row's top can be closer to that approximation than the far side of the
-  current row's own height, so dragging one of several stacked tasks up or
-  down — even just trying to reposition it within its own lane — would
-  incorrectly jump to a different lane instead of staying put. Note this only stops that
-  incorrect jump; which *track* a task lands on within a lane is still
-  decided purely by `shared/packing.ts` from start time, not by where
-  vertically it's dropped — there's no way yet to manually reorder which of
-  several overlapping tasks renders on top.
+  and check every row's own range, not only the one the drag started in.**
+  Once a row can be taller than one track (see "Overlapping tasks" above),
+  two things break if row detection only ever compares row *tops*:
+  1. A task can now start anywhere within a tall row, not just at its own
+     top edge, so approximating the pointer's position as "the origin row's
+     top plus how far it's moved" (`origOffset + dy`) drifts further from
+     reality the taller that row is — an upward drag could look like it left
+     the row on the very first pixel. `rowForVerticalDelta` instead uses the
+     pointer's *actual* current position, `DragStartState.origPointerY + dy`
+     (`origPointerY` — the pointer's real absolute Y at drag start — is
+     otherwise unused by the rest of the pure math, so it's optional and
+     pure-math callers/tests that don't supply it just get the old
+     approximation).
+  2. Even with the real position, comparing only *tops* still fails once
+     there are two tall rows next to each other: a row's far edge can be
+     much closer, by raw top-to-top distance, to a neighboring row's top
+     than to its own — so a drag aimed squarely at a *neighboring* tall
+     row's upper half could get silently reassigned back to the row it
+     started in, as if that whole upper half didn't exist. Checking whether
+     the pointer's position falls within *any* row's own `[top, top +
+     height)` range (`DragGeometry.rowHeights`, measured from the DOM
+     alongside `rowOffsets`) first — falling back to nearest-top only for a
+     genuine gap, e.g. the margin between two group cards — is what makes
+     drags into or out of a tall row (not just within one) actually land
+     where the pointer is.
+  - Which *track* a task lands on within a lane is a separate concern (see
+    "Overlapping tasks" above): row detection here only decides which
+    *lane* a move lands in — including a lane the drag is dropped into fresh
+    — and `reorderPlanForDrop` separately decides where within that lane's
+    stack it sits, from the same drop position.
 
 ## Click-to-add (`app/components/board/AddTaskZone.vue`)
 

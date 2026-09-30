@@ -76,6 +76,58 @@ describe('packRanges', () => {
   it('returns an empty array for no ranges', () => {
     expect(packRanges([])).toEqual([])
   })
+
+  describe('manual `order` override', () => {
+    it('defaults every range to order 0, sorting purely by start time', () => {
+      const packed = packRanges([
+        { id: 'a', start: 2, end: 4 },
+        { id: 'b', start: 0, end: 6 }
+      ])
+      const byId = Object.fromEntries(packed.map((r) => [r.id, r.track]))
+      // b starts first (order tied at the 0 default), so it claims track 0.
+      expect(byId.b).toBe(0)
+      expect(byId.a).toBe(1)
+    })
+
+    it('lets a lower order win an earlier track despite starting later', () => {
+      const packed = packRanges([
+        { id: 'a', start: 0, end: 6, order: 1 },
+        { id: 'b', start: 2, end: 4, order: 0 }
+      ])
+      const byId = Object.fromEntries(packed.map((r) => [r.id, r.track]))
+      expect(byId.b).toBe(0)
+      expect(byId.a).toBe(1)
+    })
+
+    it('supports reordering three mutually-overlapping ranges to any arrangement', () => {
+      const base = [
+        { id: 'a', start: 0, end: 10 },
+        { id: 'b', start: 1, end: 9 },
+        { id: 'c', start: 2, end: 8 }
+      ]
+      // Natural (default order): a, b, c top-to-bottom.
+      const natural = Object.fromEntries(packRanges(base).map((r) => [r.id, r.track]))
+      expect([natural.a, natural.b, natural.c]).toEqual([0, 1, 2])
+
+      // Move 'c' (naturally last) to the top by giving it the lowest order.
+      const reordered = Object.fromEntries(
+        packRanges(base.map((r) => (r.id === 'c' ? { ...r, order: -1 } : r))).map((r) => [r.id, r.track])
+      )
+      expect(reordered.c).toBe(0)
+      expect(reordered.a).toBe(1)
+      expect(reordered.b).toBe(2)
+    })
+
+    it('breaks a tied order by start time (then end, shorter first)', () => {
+      const packed = packRanges([
+        { id: 'a', start: 3, end: 5, order: 0 },
+        { id: 'b', start: 0, end: 6, order: 0 }
+      ])
+      const byId = Object.fromEntries(packed.map((r) => [r.id, r.track]))
+      expect(byId.b).toBe(0)
+      expect(byId.a).toBe(1)
+    })
+  })
 })
 
 describe('trackCount', () => {

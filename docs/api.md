@@ -14,15 +14,17 @@ Returns the full board document.
 ```json
 {
   "version": 1,
-  "lanes": [{ "id": "…", "name": "Lane 1", "order": 0 }],
+  "groups": [{ "id": "…", "name": "Group 1", "order": 0 }],
+  "lanes": [{ "id": "…", "name": "Lane 1", "order": 0, "groupId": "…" }],
   "tasks": [
     {
       "id": "…", "name": "Design system v2", "color": "#DF9438",
       "laneId": "…", "start": 0, "end": 2, "year": 2026,
-      "description": "", "link": "",
+      "description": "", "link": "", "order": 0,
       "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z"
     }
   ],
+  "markers": [{ "id": "…", "label": "Launch", "color": "#5B6EE1", "groupId": null, "year": 2026, "start": 3, "end": null }],
   "activeThemeId": "slate-amber"
 }
 ```
@@ -70,15 +72,19 @@ Body:
   year: number
   description?: string  // default ""
   link?: string         // must be http(s)/relative/hash URL or empty, default ""
+  order?: number         // manual stacking order among tasks that overlap it in
+                          // time in the same lane (see docs/architecture.md's
+                          // "Overlapping tasks"); default 0
 }
 ```
 
 Returns the created `Task`.
 
 - `404 Lane not found` if `laneId` doesn't reference an existing lane.
-- `409 Task overlaps with an existing task in this lane` if the requested
-  `[start, end]` range in that lane/year already contains another task.
-  The response `data.conflictingTaskId` identifies the blocking task.
+- Tasks in the same lane may overlap in time — this is not rejected. The
+  client lays overlapping tasks out side by side (see
+  `docs/architecture.md`'s "Overlapping tasks"); the server has no opinion
+  on it beyond storing each task's own `start`/`end`/`order`.
 
 ### `PATCH /api/tasks/:id`
 
@@ -87,9 +93,6 @@ Body: any subset of the `POST` fields. Returns the updated `Task`.
 - `404 Task not found` / `404 Lane not found` (if `laneId` changed to an
   unknown lane).
 - `400 end must be >= start` if the resulting range is inverted.
-- `409` (same shape as create) if the new lane/year/range overlaps another
-  task in that lane. Collision is only re-checked when `laneId`, `year`,
-  `start`, or `end` changes.
 
 ### `DELETE /api/tasks/:id`
 

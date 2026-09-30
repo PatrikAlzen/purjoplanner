@@ -136,6 +136,26 @@ onUnmounted(() => {
 // --- Drag state --------------------------------------------------------
 const dragOverrides = reactive(new Map<string, DragResult>())
 const draggingTaskId = ref<string | null>(null)
+// Live pixel `top` (within whichever row it's currently over) for the task
+// being move-dragged, tracking the pointer continuously — see
+// `updateDraggingTaskTop`. Without this, a task being dragged vertically to
+// reorder it among its siblings didn't move on screen at all until dropped
+// (its rendered `top` came purely from `packedTasksForRow`'s track, which
+// only changes once the drop actually persists a new `order`), making it
+// impossible to tell where it would land before releasing. `null` when
+// nothing's being moved, or the pointer's outside every row's bounds
+// (nothing sensible to show).
+const draggingTaskTop = ref<number | null>(null)
+// The pointer's real absolute Y as of the most recent pointermove, and the
+// mode of whichever drag is currently active — both plain (non-reactive)
+// since they're only ever read synchronously from `onCommit` right after a
+// drag ends, never rendered. Used to work out which track among its
+// siblings a task was dropped at — see `orderForTrackDrop`. Reordering only
+// makes sense for a 'move' drag: a resize's own vertical drift (the pointer
+// rarely stays pixel-perfect on one row while dragging an edge) shouldn't
+// also reorder the task being resized.
+let lastPointerY: number | null = null
+let lastDragMode: DragMode | null = null
 
 const controller = useDrag({
   geometry: () => ({
@@ -152,6 +172,11 @@ const controller = useDrag({
   onCommit: (taskId, result) => {
     dragOverrides.delete(taskId)
     draggingTaskId.value = null
+    draggingTaskTop.value = null
+    const pointerY = lastPointerY
+    const mode = lastDragMode
+    lastPointerY = null
+    lastDragMode = null
     const lane = laneRows.value[result.row]
     const task = store.tasks.find((t) => t.id === taskId)
     if (!lane || !task) return
@@ -159,19 +184,65 @@ const controller = useDrag({
     const absStart = span?.clippedLeft ? task.year * 12 + task.start : props.anchorMonth + result.start
     const absEnd = span?.clippedRight ? task.year * 12 + task.end : props.anchorMonth + result.end
     const { year: newYear, start: newStart, end: newEnd } = toStorage(absStart, absEnd)
-    if (task.laneId === lane.id && task.year === newYear && task.start === newStart && task.end === newEnd) return
-    void store.updateTask(taskId, { laneId: lane.id, year: newYear, start: newStart, end: newEnd }).catch(() => {})
+
+    const patch: { laneId?: string; year?: number; start?: number; end?: number; order?: number } = {}
+    if (task.laneId !== lane.id || task.year !== newYear || task.start !== newStart || task.end !== newEnd) {
+      patch.laneId = lane.id
+      patch.year = newYear
+      patch.start = newStart
+      patch.end = newEnd
+    }
+    // Reordering applies in whichever lane it's dropped into — including a
+    // fresh one it just moved to, not only the lane it started in.
+    if (mode === 'move' && pointerY !== null) {
+      const plan = reorderPlanForDrop(result.row, taskId, task.order, result.start, result.end, pointerY)
+      for (const change of plan) {
+        if (change.id === taskId) {
+          patch.order = change.order
+        } else {
+          // Renumbering can shift *other* tasks in the same overlapping
+          // cluster too (see reorderPlanForDrop's own comment on why) —
+          // each gets its own updateTask call/undo entry.
+          void store.updateTask(change.id, { order: change.order }).catch(() => {})
+        }
+      }
+    }
+
+    if (Object.keys(patch).length === 0) return
+    void store.updateTask(taskId, patch).catch(() => {})
   },
   onClick: (taskId) => emit('open-task', taskId)
 })
 
 function onWindowMove(e: PointerEvent) {
+  lastPointerY = e.clientY
   controller.move(e)
+  updateDraggingTaskTop()
 }
-function onWindowUp() {
+function onWindowUp(e: PointerEvent) {
+  lastPointerY = e.clientY
   controller.end()
   window.removeEventListener('pointermove', onWindowMove)
   window.removeEventListener('pointerup', onWindowUp)
+}
+
+// Recomputes `draggingTaskTop` from the pointer's latest position — called
+// after `controller.move()` so it sees the just-updated `dragOverrides` row
+// (relevant mid-drag, once a move crosses into a different lane). Follows
+// the pointer continuously (not snapped to a track slot) so it reads as a
+// natural drag; snapping only happens once the drop actually resolves a
+// track via `reorderPlanForDrop`.
+function updateDraggingTaskTop() {
+  const taskId = draggingTaskId.value
+  const row = taskId ? dragOverrides.get(taskId)?.row : undefined
+  const rowTop = row !== undefined ? rowOffsets.value[row] : undefined
+  const rowHeight = row !== undefined ? rowHeights.value[row] : undefined
+  if (!taskId || lastDragMode !== 'move' || lastPointerY === null || rowTop === undefined || rowHeight === undefined) {
+    draggingTaskTop.value = null
+    return
+  }
+  const raw = lastPointerY - rowTop - metrics.value.taskHeight / 2
+  draggingTaskTop.value = Math.max(0, Math.min(raw, Math.max(0, rowHeight - metrics.value.taskHeight)))
 }
 
 function startDrag(e: PointerEvent, task: Task, mode: DragMode) {
@@ -187,6 +258,7 @@ function startDrag(e: PointerEvent, task: Task, mode: DragMode) {
   // relative, so it goes stale if the page has scrolled vertically since the
   // last resize-triggered measurement, even though nothing actually resized.
   if (mode === 'move') measure()
+  lastDragMode = mode
   const row = rowIndexForLane(task.laneId)
   controller.start(e, task.id, mode, { start: span.start, end: span.end, row })
   window.addEventListener('pointermove', onWindowMove)
@@ -221,9 +293,9 @@ function tasksForRow(rowIndex: number): Task[] {
 function rangesForRow(rowIndex: number): PackableRange[] {
   return tasksForRow(rowIndex).map((task) => {
     const override = dragOverrides.get(task.id)
-    if (override) return { id: task.id, start: override.start, end: override.end }
+    if (override) return { id: task.id, start: override.start, end: override.end, order: task.order }
     const span = taskViewSpan(task, props.anchorMonth)
-    return { id: task.id, start: span?.start ?? 0, end: span?.end ?? 0 }
+    return { id: task.id, start: span?.start ?? 0, end: span?.end ?? 0, order: task.order }
   })
 }
 
@@ -256,6 +328,81 @@ function trackCountForRow(rowIndex: number): number {
 
 function taskTopForTrack(track: number): number {
   return metrics.value.taskTop + track * (metrics.value.taskHeight + metrics.value.trackGap)
+}
+
+// --- Reordering overlapping tasks (drag vertically within a lane) --------
+// Which slot among a row's *other* tasks (sorted the same way packing itself
+// sorts them) the pointer's final Y position landed on — 0 is "before the
+// first", `siblings.length` is "after the last", so there's always exactly
+// one more possible slot than there are siblings.
+function insertIndexForPointerY(rowIndex: number, siblingCount: number, pointerY: number): number {
+  const rowTop = rowOffsets.value[rowIndex] ?? 0
+  const step = metrics.value.taskHeight + metrics.value.trackGap
+  const relative = pointerY - rowTop - metrics.value.taskTop
+  const raw = Math.round(relative / step)
+  return Math.max(0, Math.min(raw, siblingCount))
+}
+
+// Computes the `order` changes needed to drop a task (`taskId`, with its
+// pre-drop `order` and its post-drop window-relative `[selfStart, selfEnd]`
+// — `RoadmapBoard.vue`'s `DragResult.start`/`.end`, i.e. exactly the
+// coordinate space `rangesForRow` already reports every sibling in) into the
+// slot its final pointer position landed on, relative to its *other* tasks
+// in `rowIndex`.
+//
+// Deliberately built from `rangesForRow`'s window-relative ranges rather
+// than the raw `Task` objects' own stored `{year, start, end}`: (1)
+// `rowIndex` may be a lane the task wasn't already in (a cross-lane move
+// dropped it there), where it wouldn't be found at all by looking it up via
+// `tasksForRow` — the store's own `laneId` for it is still the old lane at
+// the point this runs; (2) two tasks can have overlapping on-screen
+// positions while spanning different storage `year`s, whose raw `start`
+// values (0-11, relative to their own year) aren't directly comparable to
+// each other the way their shared window-relative positions are.
+//
+// Returns one entry per task whose `order` actually needs to change —
+// usually just `taskId` itself, but not always (see below) — or `[]` if the
+// drop landed back where it already was.
+//
+// This can't simply be "orderBetween the two neighboring order values", the
+// way lane/group reordering works: every task defaults to the *same* order
+// (0), so its immediate neighbors in the sort very often share that same
+// tied value too, and the midpoint of two equal numbers is that same number
+// again — it wouldn't actually move the task past its tied neighbors (their
+// relative order would still fall back to the start-time tie-break). The
+// only way to guarantee landing in the requested slot is to renumber the
+// whole affected cluster to fresh, distinct, consecutive integers matching
+// the new arrangement.
+function reorderPlanForDrop(
+  rowIndex: number,
+  taskId: string,
+  selfOrder: number,
+  selfStart: number,
+  selfEnd: number,
+  pointerY: number
+): { id: string; order: number }[] {
+  const sortAll = (a: PackableRange, b: PackableRange) => (a.order ?? 0) - (b.order ?? 0) || a.start - b.start || a.end - b.end
+  const siblings = rangesForRow(rowIndex)
+    .filter((r) => r.id !== taskId)
+    .sort(sortAll)
+  if (siblings.length === 0) return []
+  const insertIndex = insertIndexForPointerY(rowIndex, siblings.length, pointerY)
+
+  // No-op check: find which gap among its siblings the task *already*
+  // occupies (merging it back in with its own current order/start/end) and
+  // compare that to the dropped-at gap directly — comparing gap *positions*
+  // rather than raw order values, for the same tied-values reason as above.
+  const self: PackableRange = { id: taskId, order: selfOrder, start: selfStart, end: selfEnd }
+  const currentIndex = [...siblings, self].sort(sortAll).findIndex((r) => r.id === taskId)
+  if (insertIndex === currentIndex) return []
+
+  const arranged = [...siblings]
+  arranged.splice(insertIndex, 0, self)
+  const plan: { id: string; order: number }[] = []
+  arranged.forEach((r, i) => {
+    if ((r.order ?? 0) !== i) plan.push({ id: r.id, order: i })
+  })
+  return plan
 }
 
 // --- Marker drag/resize --------------------------------------------------
@@ -512,7 +659,7 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
             v-for="entry in packedTasksForRow(rowIndexForLane(lane.id))"
             :key="entry.task.id"
             :task="displayTask(entry.task)"
-            :top="taskTopForTrack(entry.track)"
+            :top="entry.task.id === draggingTaskId && draggingTaskTop !== null ? draggingTaskTop : taskTopForTrack(entry.track)"
             :month-width="monthWidth"
             :dragging="draggingTaskId === entry.task.id"
             :clipped-left="entry.clippedLeft"

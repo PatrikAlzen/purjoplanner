@@ -20,7 +20,7 @@ function createFetchMock() {
       const defaults =
         url === '/api/markers'
           ? { groupId: null, end: null }
-          : { description: '', link: '', createdAt: '', updatedAt: '' }
+          : { description: '', link: '', order: 0, createdAt: '', updatedAt: '' }
       return Promise.resolve({ id: `${prefix}${counter}`, ...defaults, ...opts.body })
     }
     return Promise.resolve({})
@@ -64,6 +64,7 @@ describe('board store', () => {
         year: 2026,
         description: '',
         link: '',
+        order: 0,
         createdAt: '',
         updatedAt: ''
       }
@@ -88,6 +89,7 @@ describe('board store', () => {
         year: 2026,
         description: '',
         link: '',
+        order: 0,
         createdAt: '',
         updatedAt: ''
       }
@@ -136,8 +138,8 @@ describe('board store', () => {
   it('tasksForWindow filters by the visible 12-month window', () => {
     const store = useBoardStore()
     store.tasks = [
-      { id: 't1', name: 'A', color: '#000', laneId: 'l1', start: 0, end: 1, year: 2026, description: '', link: '', createdAt: '', updatedAt: '' },
-      { id: 't2', name: 'B', color: '#000', laneId: 'l1', start: 0, end: 1, year: 2027, description: '', link: '', createdAt: '', updatedAt: '' }
+      { id: 't1', name: 'A', color: '#000', laneId: 'l1', start: 0, end: 1, year: 2026, description: '', link: '', order: 0, createdAt: '', updatedAt: '' },
+      { id: 't2', name: 'B', color: '#000', laneId: 'l1', start: 0, end: 1, year: 2027, description: '', link: '', order: 0, createdAt: '', updatedAt: '' }
     ]
     expect(store.tasksForWindow(2026 * 12).map((t) => t.id)).toEqual(['t1'])
   })
@@ -184,6 +186,7 @@ describe('board store', () => {
           year: 2026,
           description: '',
           link: '',
+          order: 0,
           createdAt: '',
           updatedAt: ''
         }
@@ -215,6 +218,7 @@ describe('board store', () => {
           year: 2026,
           description: 'unchanged',
           link: '',
+          order: 0,
           createdAt: '',
           updatedAt: ''
         }

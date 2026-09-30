@@ -126,10 +126,57 @@ describe('computeDragResult', () => {
       expect(result.row).toBe(1)
     })
 
+  })
+
+  describe('dragging between two tall rows (both hold overlapping/stacked tasks)', () => {
+    // Row A (origin, 3 stacked tracks -> 156px, spanning [100, 256)), row B
+    // (destination, 2 stacked tracks -> 110px, spanning [256, 366)), row C
+    // (a plain single-track row further down, spanning [366, 430)).
+    // Regression: comparing only row *tops* (even using the pointer's real
+    // position, but stopping at "nearest top" instead of checking full
+    // ranges) made row B's upper half look farther from the pointer than
+    // row A's own top once row A was tall — a drag aimed squarely at row B's
+    // upper portion was silently reassigned back to row A, as if the whole
+    // upper half of row B didn't exist.
+    const twoTallRowsGeometry = {
+      monthWidth: 40,
+      laneHeight: 64,
+      laneCount: 3,
+      rowOffsets: [100, 256, 366],
+      rowHeights: [156, 110, 64]
+    }
+    // Pointer grabbed row A's bottom track (track 2 of 3): 100 + 12 + 2*46 + 20.
+    const pointerAtRowABottom = 224
+
+    it("lands in row B's upper portion instead of snapping back to row A", () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0, origPointerY: pointerAtRowABottom }
+      // 224 + 64 = 288, inside row B's own [256, 366) — specifically its
+      // upper half (256-311), not just anywhere in row B.
+      const result = computeDragResult(start, 0, 64, twoTallRowsGeometry)
+      expect(result.row).toBe(1)
+    })
+
+    it("still lands in row B's lower portion when dragged further", () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0, origPointerY: pointerAtRowABottom }
+      // 224 + 120 = 344, still inside row B's [256, 366), in its lower half.
+      const result = computeDragResult(start, 0, 120, twoTallRowsGeometry)
+      expect(result.row).toBe(1)
+    })
+
+    it('passes all the way through row B into row C when dragged far enough', () => {
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0, origPointerY: pointerAtRowABottom }
+      // 224 + 180 = 404, inside row C's [366, 430).
+      const result = computeDragResult(start, 0, 180, twoTallRowsGeometry)
+      expect(result.row).toBe(2)
+    })
+
     it('falls back to nearest-top matching when rowHeights is stale (length mismatch)', () => {
-      const stale = { ...stackedGeometry, rowHeights: [110] }
-      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0, origPointerY: pointerNearRowBottom }
-      const result = computeDragResult(start, 0, 90, stale)
+      const stale = { ...twoTallRowsGeometry, rowHeights: [156] }
+      const start: DragStartState = { mode: 'move', origStart: 0, origEnd: 1, origRow: 0, origPointerY: pointerAtRowABottom }
+      // Without a valid rowHeights, containment-checking is skipped
+      // entirely and this falls back to nearest-top-by-real-pointer-position:
+      // 224 + 64 = 288 is closer to row B's top (256) than row A's (100).
+      const result = computeDragResult(start, 0, 64, stale)
       expect(result.row).toBe(1)
     })
   })

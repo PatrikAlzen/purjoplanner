@@ -303,6 +303,7 @@ export async function createTask(input: unknown): Promise<Task> {
       year: parsed.year,
       description: parsed.description ?? '',
       link: parsed.link ?? '',
+      order: parsed.order ?? 0,
       createdAt: ts,
       updatedAt: ts
     }
@@ -335,6 +336,7 @@ export async function updateTask(id: string, input: unknown): Promise<Task> {
     if (parsed.color !== undefined) task.color = parsed.color
     if (parsed.description !== undefined) task.description = parsed.description
     if (parsed.link !== undefined) task.link = parsed.link
+    if (parsed.order !== undefined) task.order = parsed.order
     task.laneId = nextLaneId
     task.year = nextYear
     task.start = nextStart

@@ -12,6 +12,15 @@ export interface Task {
   year: number // the task's start year
   description: string
   link: string
+  // Manual stacking order among tasks that overlap it in time within the
+  // same lane (see `shared/packing.ts`) — lower sorts first, i.e. into a
+  // higher (earlier) track. A plain, possibly fractional number, the same
+  // "insert between two existing values" convention as Group/Lane's own
+  // `order`. Defaults to 0 for every task until a user drags one to
+  // reorder it, at which point packing falls back to sorting by start time
+  // (see `packRanges`), so untouched boards keep their existing chronological
+  // stacking order.
+  order: number
   createdAt: string
   updatedAt: string
 }
@@ -96,10 +105,10 @@ export type TaskCreateInput = Pick<
   Task,
   'name' | 'color' | 'laneId' | 'start' | 'end' | 'year'
 > &
-  Partial<Pick<Task, 'description' | 'link'>>
+  Partial<Pick<Task, 'description' | 'link' | 'order'>>
 
 export type TaskUpdateInput = Partial<
-  Pick<Task, 'name' | 'color' | 'laneId' | 'start' | 'end' | 'year' | 'description' | 'link'>
+  Pick<Task, 'name' | 'color' | 'laneId' | 'start' | 'end' | 'year' | 'description' | 'link' | 'order'>
 >
 
 export type GroupCreateInput = Pick<Group, 'name'> & Partial<Pick<Group, 'order'>>

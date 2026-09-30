@@ -501,8 +501,17 @@ function migrateBoardData(raw: BoardData): { data: BoardData; changed: boolean }
     markers = []
     changed = true
   }
+  // Boards written before manual task ordering existed have tasks with no
+  // `order` field at all — default to 0, same as every task gets on
+  // create, which just falls back to sorting by start time (see
+  // shared/packing.ts) and so doesn't change how any existing board looks.
+  let tasks = raw.tasks
+  if (tasks.some((t) => t.order === undefined)) {
+    tasks = tasks.map((t) => (t.order === undefined ? { ...t, order: 0 } : t))
+    changed = true
+  }
   if (!changed) return { data: raw, changed: false }
-  return { data: { ...raw, groups, lanes, markers }, changed: true }
+  return { data: { ...raw, groups, lanes, markers, tasks }, changed: true }
 }
 
 function createBoardMeta(id: string, name: string): Board {

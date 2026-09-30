@@ -25,6 +25,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     year: 2026,
     description: '',
     link: '',
+    order: 0,
     createdAt: '',
     updatedAt: '',
     ...overrides

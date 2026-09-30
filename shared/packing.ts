@@ -17,6 +17,11 @@ export interface PackableRange {
   id: string
   start: number
   end: number
+  // Manual stacking order (lower sorts first, into an earlier track) —
+  // optional, defaulting to 0 for every range, which falls back to sorting
+  // purely by start time (see the comment on `packRanges`'s sort below). A
+  // caller that doesn't care about manual ordering can simply omit it.
+  order?: number
 }
 
 export interface PackedRange extends PackableRange {
@@ -31,10 +36,17 @@ export interface PackedRange extends PackableRange {
  * clipping, the old `hasOverlap`).
  */
 export function packRanges(ranges: PackableRange[]): PackedRange[] {
-  // Sorting by start (ties broken by the shorter range first) is what makes
-  // the greedy "first free track" placement below optimal — it's the
-  // standard interval-partitioning/minimum-rooms algorithm.
-  const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end)
+  // `order` is the primary sort key so a manual reorder (see
+  // RoadmapBoard.vue's drag-to-reorder) can override the natural time-based
+  // arrangement; start (then end, shorter first) is both the tie-break for
+  // equal `order` and, since every range defaults to `order: 0`, the sole
+  // effective key for any board nobody has manually reordered — which is
+  // also what makes the greedy "first free track" placement below optimal
+  // (the standard interval-partitioning/minimum-rooms algorithm) in that
+  // default case. A manual order can make packing non-optimal (more tracks
+  // than the theoretical minimum) — an accepted trade-off for letting the
+  // user control the arrangement directly.
+  const sorted = [...ranges].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.start - b.start || a.end - b.end)
 
   // trackEnds[i] = the `end` of whichever range currently occupies track i.
   const trackEnds: number[] = []

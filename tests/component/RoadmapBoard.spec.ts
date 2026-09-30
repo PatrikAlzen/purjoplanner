@@ -34,6 +34,7 @@ function seedStore() {
       year: 2026,
       description: '',
       link: '',
+      order: 0,
       createdAt: '',
       updatedAt: ''
     }
@@ -71,6 +72,7 @@ describe('RoadmapBoard', () => {
       year: 2027,
       description: '',
       link: '',
+      order: 0,
       createdAt: '',
       updatedAt: ''
     })
@@ -104,7 +106,7 @@ describe('RoadmapBoard', () => {
   describe('click-to-add (AddTaskZone)', () => {
     function stubCreate() {
       return vi.fn().mockImplementation((_url: string, opts: { body: Record<string, unknown> }) =>
-        Promise.resolve({ id: 'new-t', description: '', link: '', createdAt: '', updatedAt: '', ...opts.body })
+        Promise.resolve({ id: 'new-t', description: '', link: '', order: 0, createdAt: '', updatedAt: '', ...opts.body })
       )
     }
 
@@ -164,6 +166,7 @@ describe('RoadmapBoard', () => {
         year: 2026,
         description: '',
         link: '',
+        order: 0,
         createdAt: '',
         updatedAt: ''
       })
@@ -198,6 +201,7 @@ describe('RoadmapBoard', () => {
         year: 2026,
         description: '',
         link: '',
+        order: 0,
         createdAt: '',
         updatedAt: ''
       })
@@ -222,6 +226,7 @@ describe('RoadmapBoard', () => {
         year: 2026,
         description: '',
         link: '',
+        order: 0,
         createdAt: '',
         updatedAt: ''
       })
@@ -230,6 +235,188 @@ describe('RoadmapBoard', () => {
       const pills = wrapper.findAll('[data-task-id]')
       const tops = pills.map((p) => (p.element as HTMLElement).style.top)
       expect(new Set(tops).size).toBe(1)
+    })
+  })
+
+  describe('reordering overlapping tasks (drag vertically within a lane)', () => {
+    it("drags the bottom-track task to the top, persisting it via a new `order`", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({})
+      vi.stubGlobal('$fetch', fetchMock)
+      const store = seedStore()
+      // t1 (start 0-2), t2 (start 1-3), t3 (start 2-4) all mutually overlap.
+      // With every task defaulting to order 0, packing falls back to start
+      // time: t1 -> track 0 (top), t2 -> track 1, t3 -> track 2 (bottom).
+      store.tasks.push(
+        {
+          id: 't2',
+          name: 'Middle',
+          color: '#2F8F8B',
+          laneId: 'l1',
+          start: 1,
+          end: 3,
+          year: 2026,
+          description: '',
+          link: '',
+          order: 0,
+          createdAt: '',
+          updatedAt: ''
+        },
+        {
+          id: 't3',
+          name: 'Bottom',
+          color: '#C9584A',
+          laneId: 'l1',
+          start: 2,
+          end: 4,
+          year: 2026,
+          description: '',
+          link: '',
+          order: 0,
+          createdAt: '',
+          updatedAt: ''
+        }
+      )
+      const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
+
+      // Lane 1's own track is 156px tall (3 stacked tracks: 12*2 + 3*40 + 2*6);
+      // lane 2's is an arbitrary single-track height further down — jsdom has
+      // no real layout, so `measure()`'s geometry has to be stubbed directly
+      // (same technique Lane.spec.ts/Group.spec.ts already use).
+      const laneTracks = wrapper.findAll('.lane-track')
+      laneTracks[0]!.element.getBoundingClientRect = () => ({ top: 100, height: 156 }) as DOMRect
+      laneTracks[1]!.element.getBoundingClientRect = () => ({ top: 300, height: 64 }) as DOMRect
+
+      // Grab the bottom-track pill (t3, at row-relative y 100+12+2*46=204) and
+      // drag it straight up to the top track's position (y 100+12=112) —
+      // pure vertical movement (same clientX throughout), staying well within
+      // lane 1's own 156px height the whole way (see the useDrag.ts fix this
+      // relies on: it must NOT jump to lane 2).
+      const bottomPill = wrapper.find('[data-task-id="t3"]')
+      await bottomPill.trigger('pointerdown', { clientX: 0, clientY: 224 })
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, clientY: 132 }))
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, clientY: 132 }))
+      await flushPromises()
+
+      // Every task defaults to order 0, so simply averaging t3's new
+      // neighbors' order values wouldn't actually move it past them once
+      // start-time tie-breaking is considered — the whole affected cluster
+      // gets renumbered to fresh, distinct values instead. t3 already gets
+      // to keep order 0 (nothing else needs to precede it), so t1 and t2
+      // are the ones that actually get bumped, making t3 sort first.
+      expect(fetchMock).not.toHaveBeenCalledWith('/api/tasks/t3', expect.anything())
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks/t1',
+        expect.objectContaining({ method: 'PATCH', body: { order: 1 } })
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks/t2',
+        expect.objectContaining({ method: 'PATCH', body: { order: 2 } })
+      )
+    })
+
+    it('does not reorder when the drop lands back at the same relative position', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({})
+      vi.stubGlobal('$fetch', fetchMock)
+      const store = seedStore()
+      store.tasks.push({
+        id: 't2',
+        name: 'Middle',
+        color: '#2F8F8B',
+        laneId: 'l1',
+        start: 1,
+        end: 3,
+        year: 2026,
+        description: '',
+        link: '',
+        order: 0,
+        createdAt: '',
+        updatedAt: ''
+      })
+      const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
+
+      const laneTracks = wrapper.findAll('.lane-track')
+      laneTracks[0]!.element.getBoundingClientRect = () => ({ top: 100, height: 110 }) as DOMRect
+      laneTracks[1]!.element.getBoundingClientRect = () => ({ top: 300, height: 64 }) as DOMRect
+
+      // t1 is on track 0 (top, y ~112). Nudge it down and back up within the
+      // same track's own neighborhood — still lands in insertion slot 0.
+      const topPill = wrapper.find('[data-task-id="t1"]')
+      await topPill.trigger('pointerdown', { clientX: 0, clientY: 112 })
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, clientY: 120 }))
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, clientY: 120 }))
+      await flushPromises()
+
+      expect(fetchMock).not.toHaveBeenCalledWith('/api/tasks/t1', expect.anything())
+    })
+
+    it('also reorders within the lane a task is dragged *into* (not just the one it started in)', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({})
+      vi.stubGlobal('$fetch', fetchMock)
+      const store = seedStore()
+      // t1 (l1, start 2-3) is alone in its lane. l2 already has two
+      // overlapping tasks, t4 (start 1-4) and t5 (start 2-5), both of which
+      // t1 will also overlap once dropped into l2.
+      store.tasks.push(
+        {
+          id: 't4',
+          name: 'Existing A',
+          color: '#2F8F8B',
+          laneId: 'l2',
+          start: 1,
+          end: 4,
+          year: 2026,
+          description: '',
+          link: '',
+          order: 0,
+          createdAt: '',
+          updatedAt: ''
+        },
+        {
+          id: 't5',
+          name: 'Existing B',
+          color: '#C9584A',
+          laneId: 'l2',
+          start: 2,
+          end: 5,
+          year: 2026,
+          description: '',
+          link: '',
+          order: 0,
+          createdAt: '',
+          updatedAt: ''
+        }
+      )
+      store.tasks[0]!.start = 2
+      store.tasks[0]!.end = 3
+      const wrapper = mount(RoadmapBoard, { props: { anchorMonth: ANCHOR_2026 }, global: { components: globalComponents } })
+
+      const laneTracks = wrapper.findAll('.lane-track')
+      laneTracks[0]!.element.getBoundingClientRect = () => ({ top: 100, height: 64 }) as DOMRect
+      laneTracks[1]!.element.getBoundingClientRect = () => ({ top: 300, height: 110 }) as DOMRect
+
+      // Drag t1 straight down (no horizontal movement, so its dates don't
+      // change) from lane 1 into lane 2's own top-track position.
+      const pill = wrapper.find('[data-task-id="t1"]')
+      await pill.trigger('pointerdown', { clientX: 0, clientY: 112 })
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, clientY: 312 }))
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, clientY: 312 }))
+      await flushPromises()
+
+      // t1 moves lane (no order field needed — it happens to already sort
+      // first among the new siblings), while the two tasks already in lane 2
+      // get bumped to make room for it.
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks/t1',
+        expect.objectContaining({ method: 'PATCH', body: { laneId: 'l2', year: 2026, start: 2, end: 3 } })
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks/t4',
+        expect.objectContaining({ method: 'PATCH', body: { order: 1 } })
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks/t5',
+        expect.objectContaining({ method: 'PATCH', body: { order: 2 } })
+      )
     })
   })
 

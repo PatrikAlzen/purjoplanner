@@ -320,7 +320,8 @@ export const useBoardStore = defineStore('board', {
               end: task.end,
               year: task.year,
               description: task.description,
-              link: task.link
+              link: task.link,
+              order: task.order
             })
             ref.id = t.id
           }
@@ -378,7 +379,8 @@ export const useBoardStore = defineStore('board', {
               end: removed.end,
               year: removed.year,
               description: removed.description,
-              link: removed.link
+              link: removed.link,
+              order: removed.order
             })
             ref.id = t.id
           },

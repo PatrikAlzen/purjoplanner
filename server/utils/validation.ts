@@ -26,7 +26,11 @@ export const taskCreateSchema = z
     end: endMonthIndex,
     year: z.number().int().min(1970).max(3000),
     description: z.string().max(5000).optional().default(''),
-    link: linkField.optional().default('')
+    link: linkField.optional().default(''),
+    // Manual stacking order among time-overlapping tasks in the same lane
+    // (see shared/packing.ts) — defaults to 0, same as every other task,
+    // which just falls back to sorting by start time.
+    order: z.number().optional().default(0)
   })
   .refine((v) => v.end >= v.start, { message: 'end must be >= start', path: ['end'] })
 
@@ -39,7 +43,8 @@ export const taskUpdateSchema = z
     end: endMonthIndex.optional(),
     year: z.number().int().min(1970).max(3000).optional(),
     description: z.string().max(5000).optional(),
-    link: linkField.optional()
+    link: linkField.optional(),
+    order: z.number().optional()
   })
   .refine((v) => (v.start === undefined || v.end === undefined ? true : v.end >= v.start), {
     message: 'end must be >= start',
