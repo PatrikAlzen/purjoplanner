@@ -294,8 +294,21 @@ describe('RoadmapBoard', () => {
       const bottomPill = wrapper.find('[data-task-id="t3"]')
       await bottomPill.trigger('pointerdown', { clientX: 0, clientY: 224 })
       window.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, clientY: 132 }))
+      await wrapper.vm.$nextTick()
+
+      // Mid-drag: an insertion-line indicator shows where it would land —
+      // the same idea as Lane.vue/Group.vue's own drag-reorder line — at the
+      // slot boundary the drop would actually use (row-relative y 0, i.e.
+      // "insert before everything else").
+      const indicator = wrapper.find('.reorder-indicator')
+      expect(indicator.exists()).toBe(true)
+      expect((indicator.element as HTMLElement).style.top).toBe('0px')
+
       window.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, clientY: 132 }))
       await flushPromises()
+
+      // Gone once the drag ends.
+      expect(wrapper.find('.reorder-indicator').exists()).toBe(false)
 
       // Every task defaults to order 0, so simply averaging t3's new
       // neighbors' order values wouldn't actually move it past them once

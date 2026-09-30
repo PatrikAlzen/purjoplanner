@@ -181,11 +181,21 @@ taller lane instead.
     once a drop actually persists a new `order` — so without further work, a
     task being dragged vertically to reorder it wouldn't move on screen at
     all until release, making it impossible to judge where it would land.
-    `draggingTaskTop` (updated on every `pointermove` via
-    `updateDraggingTaskTop`) tracks the pointer continuously within whichever
-    row it's currently over and overrides the dragged `TaskPill`'s `top`
-    while a move-drag is active, snapping back to the real computed track
-    only once the drag ends.
+    `draggingTaskTop` (updated on every `pointermove` via `updateDragVisuals`)
+    tracks the pointer continuously within whichever row it's currently over
+    and overrides the dragged `TaskPill`'s `top` while a move-drag is active,
+    snapping back to the real computed track only once the drag ends.
+  - **A `.reorder-indicator` line shows which slot it would land in** — the
+    same idea as `Group.vue`/`Lane.vue`'s own insertion line while dragging
+    *those* to reorder, just driven by a continuous pixel offset
+    (`reorderIndicator.top`) rather than a fixed before/after class, since a
+    task can land in any of several slots rather than just above or below one
+    other row. `updateDragVisuals` computes it from the exact same
+    `insertIndexForPointerY` call `reorderPlanForDrop` will use on drop, so
+    the line is always showing precisely where releasing would actually put
+    the task, in whichever row it's currently hovering over (including a row
+    it doesn't belong to yet) — and disappears entirely when there's nothing
+    to reorder against (the task has no overlapping siblings there).
 
 ## Access control (`server/middleware/auth.ts`)
 

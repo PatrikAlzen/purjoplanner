@@ -146,6 +146,13 @@ const draggingTaskId = ref<string | null>(null)
 // nothing's being moved, or the pointer's outside every row's bounds
 // (nothing sensible to show).
 const draggingTaskTop = ref<number | null>(null)
+// Where (within whichever row `draggingTaskTop` is over) an insertion line
+// should be drawn to show which slot among its siblings a move-drag would
+// currently land in — the same idea as the insertion line `Group.vue`/
+// `Lane.vue` already draw while dragging one of *those* to reorder it.
+// `null` when there's nothing to reorder against (the task has no
+// overlapping siblings in its current row) or nothing's being moved.
+const reorderIndicator = ref<{ row: number; top: number } | null>(null)
 // The pointer's real absolute Y as of the most recent pointermove, and the
 // mode of whichever drag is currently active — both plain (non-reactive)
 // since they're only ever read synchronously from `onCommit` right after a
@@ -173,6 +180,7 @@ const controller = useDrag({
     dragOverrides.delete(taskId)
     draggingTaskId.value = null
     draggingTaskTop.value = null
+    reorderIndicator.value = null
     const pointerY = lastPointerY
     const mode = lastDragMode
     lastPointerY = null
@@ -217,7 +225,7 @@ const controller = useDrag({
 function onWindowMove(e: PointerEvent) {
   lastPointerY = e.clientY
   controller.move(e)
-  updateDraggingTaskTop()
+  updateDragVisuals()
 }
 function onWindowUp(e: PointerEvent) {
   lastPointerY = e.clientY
@@ -226,23 +234,39 @@ function onWindowUp(e: PointerEvent) {
   window.removeEventListener('pointerup', onWindowUp)
 }
 
-// Recomputes `draggingTaskTop` from the pointer's latest position — called
-// after `controller.move()` so it sees the just-updated `dragOverrides` row
-// (relevant mid-drag, once a move crosses into a different lane). Follows
-// the pointer continuously (not snapped to a track slot) so it reads as a
-// natural drag; snapping only happens once the drop actually resolves a
-// track via `reorderPlanForDrop`.
-function updateDraggingTaskTop() {
+// Recomputes `draggingTaskTop`/`reorderIndicator` from the pointer's latest
+// position — called after `controller.move()` so it sees the just-updated
+// `dragOverrides` row (relevant mid-drag, once a move crosses into a
+// different lane).
+function updateDragVisuals() {
   const taskId = draggingTaskId.value
   const row = taskId ? dragOverrides.get(taskId)?.row : undefined
   const rowTop = row !== undefined ? rowOffsets.value[row] : undefined
   const rowHeight = row !== undefined ? rowHeights.value[row] : undefined
-  if (!taskId || lastDragMode !== 'move' || lastPointerY === null || rowTop === undefined || rowHeight === undefined) {
+  if (!taskId || lastDragMode !== 'move' || lastPointerY === null || row === undefined || rowTop === undefined || rowHeight === undefined) {
     draggingTaskTop.value = null
+    reorderIndicator.value = null
     return
   }
+
+  // The dragged pill's own live position — follows the pointer continuously
+  // (not snapped to a track slot) so it reads as a natural drag; snapping
+  // only happens once the drop actually resolves a track via
+  // `reorderPlanForDrop`.
   const raw = lastPointerY - rowTop - metrics.value.taskHeight / 2
   draggingTaskTop.value = Math.max(0, Math.min(raw, Math.max(0, rowHeight - metrics.value.taskHeight)))
+
+  // The insertion-line indicator, at the same slot boundary
+  // `reorderPlanForDrop` would actually insert at — the same idea as
+  // Group.vue/Lane.vue's own drag-reorder insertion line.
+  const siblingCount = tasksForRow(row).filter((t) => t.id !== taskId).length
+  if (siblingCount === 0) {
+    reorderIndicator.value = null
+    return
+  }
+  const insertIndex = insertIndexForPointerY(row, siblingCount, lastPointerY)
+  const step = metrics.value.taskHeight + metrics.value.trackGap
+  reorderIndicator.value = { row, top: insertIndex * step }
 }
 
 function startDrag(e: PointerEvent, task: Task, mode: DragMode) {
@@ -668,6 +692,11 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
             @pointerdown-resize-left="(e) => startDrag(e, entry.task, 'resize-left')"
             @pointerdown-resize-right="(e) => startDrag(e, entry.task, 'resize-right')"
           />
+          <div
+            v-if="reorderIndicator && reorderIndicator.row === rowIndexForLane(lane.id)"
+            class="reorder-indicator"
+            :style="{ top: `${reorderIndicator.top}px` }"
+          />
         </Lane>
 
         <div class="row-shell add-lane-row">
@@ -689,6 +718,21 @@ function onGroupReorder(targetGroupId: string, payload: { draggedId: string; pos
   padding: 22px 24px 60px;
   overflow-x: auto;
   background-color: var(--paper);
+}
+/* Same idea as Group.vue/Lane.vue's own drag-reorder insertion line, just
+   driven by a continuous pixel offset (`reorderIndicator.top`) instead of a
+   fixed before/after class, since a task can land in any of several slots
+   rather than just above/below one other row. */
+.reorder-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  margin-top: -1.5px;
+  background: var(--accent);
+  border-radius: 2px;
+  z-index: 15;
+  pointer-events: none;
 }
 .board {
   min-width: 1000px;
